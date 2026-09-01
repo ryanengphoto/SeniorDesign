@@ -41,13 +41,15 @@ Other Firmware Based Attacks
 4. The board shall be capable of isolating USB inputs from the host and other USB inputs.
 5. USB inputs shall still function in the event one input has been isolated from the system.
 6. The system shall have the ability to switch off any USB input's power rail.
-7. All inputs USBs should have a form of basic ESD protection
-8. The board shall have an output for data monitoring from the MCU
+7. All inputs USBs should have a form of basic ESD protection.
+8. The board shall have an output for data monitoring from the MCU.
+9. The board shall have a method of external reset.
+10. The board shall have a method of powering on/off.
 
 **Advanced**
 1. Each USB input should be capable of withstanding a 500V surge
 2. The board should have an option for external additional USB 5V power
-3.
+3. 
 
 **Stretch**
 1. 
@@ -58,7 +60,13 @@ Other Firmware Based Attacks
 FPGA utilizes a timer to check keyboard input rate.
 **Basic**
 1. The FPGA shall be capable of switching off the 5V rails for isolated/powered off USB inputs.
+2. The FPGA shall be capable of implementing USB security features.
+3. 
+
+**Advanced**
+
 
 ## MCU Requirements/Specs
 
 **Basic**
+1. The MCU shall be capable of relaying data to a host computer via UART
