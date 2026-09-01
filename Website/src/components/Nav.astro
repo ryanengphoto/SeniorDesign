@@ -1,0 +1,50 @@
+---
+const links = [
+  { href: "/#overview", label: "Overview" },
+  { href: "/#security", label: "Security" },
+  { href: "/#architecture", label: "Architecture" },
+  { href: "/team", label: "Team" },
+];
+
+const currentPath = Astro.url.pathname;
+---
+
+<nav
+  class="fixed inset-x-0 top-0 z-50 border-b border-border/60 bg-bg/80 backdrop-blur-md"
+>
+  <div
+    class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4"
+  >
+    <a
+      href="/"
+      class="font-mono text-sm font-medium tracking-wide text-accent transition-colors hover:text-accent-dim"
+    >
+      USB-HUB<span class="text-muted">/SD</span>
+    </a>
+    <ul class="flex items-center gap-6">
+      {
+        links.map(({ href, label }) => {
+          const isActive =
+            href === "/team"
+              ? currentPath === "/team"
+              : currentPath === "/" && href.startsWith("/#");
+          return (
+            <li>
+              <a
+                href={href}
+                class:list={[
+                  "text-sm transition-colors",
+                  isActive
+                    ? "text-accent"
+                    : "text-muted hover:text-text",
+                ]}
+              >
+                {label}
+              </a>
+            </li>
+          );
+        })
+      }
+    </ul>
+  </div>
+</nav>

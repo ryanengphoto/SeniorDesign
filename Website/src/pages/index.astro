@@ -1,0 +1,180 @@
+---
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Hero from "../components/Hero.astro";
+import blockDiagram from "../../../Docs/BlockDiagrams/Rendered/bd1.jpg";
+
+const securityFeatures = [
+  {
+    title: "USB Killer protection",
+    description:
+      "Overvoltage and overcurrent protection with sub-microsecond response to 240V+ surges.",
+    tag: "Basic",
+  },
+  {
+    title: "BadUSB mitigation",
+    description:
+      "Detects devices emulating keyboards or network adapters to block malware delivery paths.",
+    tag: "Basic",
+  },
+  {
+    title: "Input isolation",
+    description:
+      "Each USB port can be electrically isolated from the host and from other ports independently.",
+    tag: "Basic",
+  },
+  {
+    title: "HID injection defense",
+    description:
+      "FPGA monitors keyboard input rates to flag automated HID injection attacks.",
+    tag: "Advanced",
+  },
+  {
+    title: "Per-port power control",
+    description:
+      "MCU and FPGA can switch off individual 5V rails for compromised or suspicious devices.",
+    tag: "Basic",
+  },
+  {
+    title: "ESD protection",
+    description:
+      "Every input includes basic electrostatic discharge protection on data and power lines.",
+    tag: "Basic",
+  },
+];
+
+const specs = [
+  "2-to-1 USB hub minimum; 4-to-1 target configuration",
+  "5V delivery per port from host, with optional external power",
+  "240V surge withstand (500V advanced target)",
+  "Isolation without disabling unaffected ports",
+  "MCU data monitoring output for analysis and logging",
+];
+---
+
+<Base title="Secure USB Hub | Senior Design">
+  <Nav />
+  <main>
+    <Hero />
+
+    <section id="overview" class="mx-auto max-w-6xl px-6 py-24">
+      <div data-animate="fade-up">
+        <p class="font-mono text-sm tracking-widest text-accent uppercase">
+          Overview
+        </p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+          One hub. Four ports. Zero trust.
+        </h2>
+        <p class="mt-4 max-w-3xl text-lg text-muted">
+          USB devices are a common attack vector. This project combines custom PCB
+          design, FPGA logic, and MCU firmware to deliver hub functionality with
+          hardware-enforced security boundaries between ports.
+        </p>
+      </div>
+
+      <ul
+        data-animate="stagger"
+        class="mt-12 grid gap-4 sm:grid-cols-2"
+      >
+        {
+          specs.map((spec) => (
+            <li
+              data-stagger-item
+              class="flex items-start gap-3 rounded-xl border border-border bg-surface p-5"
+            >
+              <span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" />
+              <span class="text-muted">{spec}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <section id="security" class="border-y border-border bg-surface/50 py-24">
+      <div class="mx-auto max-w-6xl px-6">
+        <div data-animate="fade-up">
+          <p class="font-mono text-sm tracking-widest text-accent uppercase">
+            Security
+          </p>
+          <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+            Defense in depth
+          </h2>
+          <p class="mt-4 max-w-2xl text-muted">
+            Protection spans physical surge handling, port isolation, and
+            firmware-level threat detection.
+          </p>
+        </div>
+
+        <div
+          data-animate="stagger"
+          class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {
+            securityFeatures.map(({ title, description, tag }) => (
+              <article
+                data-stagger-item
+                class="group rounded-xl border border-border bg-surface p-6 transition-colors hover:border-accent/30"
+              >
+                <span class="font-mono text-xs tracking-wide text-accent uppercase">
+                  {tag}
+                </span>
+                <h3 class="mt-2 text-lg font-semibold">{title}</h3>
+                <p class="mt-2 text-sm leading-relaxed text-muted">
+                  {description}
+                </p>
+              </article>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture" class="mx-auto max-w-6xl px-6 py-24">
+      <div data-animate="fade-up">
+        <p class="font-mono text-sm tracking-widest text-accent uppercase">
+          Architecture
+        </p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+          System block diagram
+        </h2>
+        <p class="mt-4 max-w-2xl text-muted">
+          Host, hub controller, FPGA, and MCU work together to monitor, isolate,
+          and cut power to individual USB inputs.
+        </p>
+      </div>
+
+      <figure
+        data-animate="scale-in"
+        class="mt-12 overflow-hidden rounded-2xl border border-border bg-surface-raised p-2"
+      >
+        <img
+          src={blockDiagram.src}
+          width={blockDiagram.width}
+          height={blockDiagram.height}
+          alt="System block diagram showing USB inputs, protection circuitry, FPGA, and MCU"
+          class="w-full rounded-xl"
+          loading="lazy"
+        />
+        <figcaption class="px-4 py-3 text-center text-sm text-muted">
+          Block diagram — USB hub with hardware security layer
+        </figcaption>
+      </figure>
+    </section>
+  </main>
+
+  <footer class="border-t border-border py-10">
+    <div
+      class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 sm:flex-row"
+    >
+      <p class="font-mono text-sm text-muted">
+        Senior Design &middot; Hardware-secure USB hub
+      </p>
+      <a
+        href="/team"
+        class="text-sm text-accent transition-colors hover:text-accent-dim"
+      >
+        Meet the team &rarr;
+      </a>
+    </div>
+  </footer>
+</Base>
