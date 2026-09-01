@@ -11,4 +11,4 @@
 | `FPGA/` | HDL, constraints, FPGA project files |
 | `GUI/` | Desktop / control software |
 | `PCB/` | Schematics, layout, BOMs |
-| `Website/` | Project website |
+| `Website/` | Public project site (Astro); `state.md` for prototype status |

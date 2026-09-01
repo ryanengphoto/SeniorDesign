@@ -1,3 +1,9 @@
+# Website — Agent notes
+
+Public Astro site. Distinct from the operator console in `GUI/`.
+
+Prototype status: [`state.md`](state.md).
+
 ## Development
 
 When starting the dev server, use background mode:

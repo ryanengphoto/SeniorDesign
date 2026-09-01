@@ -1,39 +1,33 @@
-# Astro Starter Kit: Minimal
+# Senior Design — Project Website
 
-```sh
-npm create astro@latest -- --template minimal
+Static public site for the hardware-secure USB hub senior design project. Built with [Astro](https://docs.astro.build).
+
+**Not** the operator console — that lives in [`../GUI/`](../GUI/).
+
+Prototype status: [`state.md`](state.md).
+
+## Run locally
+
+```bash
+cd Website
+npm install
+npm run dev
 ```
 
-## Project Structure
+Open http://localhost:4321
 
-Inside of your Astro project, you'll see the following folders and files:
+## Build for production
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+```bash
+npm run build
+npm run preview   # smoke-test dist/
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+Output: `Website/dist/`
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+## Pages
 
-Any static assets, like images, can be placed in the `public/` directory.
-
-## Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-[Astro documentation](https://docs.astro.build)
+| Route | Description |
+| --- | --- |
+| `/` | Project overview, security features, block diagram |
+| `/team` | Team and faculty advisors |
