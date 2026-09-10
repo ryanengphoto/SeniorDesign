@@ -2,17 +2,50 @@
 
 **Project:** Hardware-Isolated USB Security Gateway (Modular Carrier PCB)  
 **Target Form Factor:** Dual Daughterboard Carrier (FPGA SoM + MCU Module)  
-**Dimensions:** 140.0 mm × 100.0 mm  
+**Dimensions:** 140.0 mm × 100.0 mm (PCB); enclosure ≤ 165 × 115 × 40 mm  
 **Target EDA:** KiCad 8.0 / Altium Designer  
-**Document Version:** 2.0  
+**Document Version:** 2.1  
+
+**Related docs (read with this file):**
+- Product context / engineering specs: [`Docs/d_c_txt.md`](d_c_txt.md)
+- Requirements: [`Docs/init_specs.md`](init_specs.md)
+- FPGA fabric: [`Docs/fabric_slop.md`](fabric_slop.md)
+- MCU firmware: [`Docs/firmwmare_slop.md`](firmwmare_slop.md)
+- Hardware block diagram: [`Docs/BlockDiagrams/Rendered/pcb_bd.jpg`](BlockDiagrams/Rendered/pcb_bd.jpg)
+
+---
+
+## 0. System Architecture (board-level signal flow)
+
+This carrier PCB is the physical security gateway between four untrusted downstream USB ports and one trusted upstream host. Per [`Docs/d_c_txt.md`](d_c_txt.md), the intended path is:
+
+1. **Downstream Type-A ports** on the PCB edge receive peripherals.
+2. **Analog frontend per port** provides electrical protection (overcurrent / overvoltage / ESD / USB-Killer-class surges), **high-speed analog switches** driven by FPGA kill lines, and **current/power sensing** for the MCU.
+3. After the analog block, USB D+/D− feed **both** the **USB hub IC** (forward path to the host) and a **high-impedance tap into the FPGA** in parallel. The FPGA sniffs; it is not in-line on the critical data path by default (in-line FPGA is a stretch goal).
+4. On threat detection, the FPGA asserts **kill** to the analog switch / eFuse for that port so remaining ports stay up.
+5. The FPGA is an **SPI slave**; the MCU is SPI master, reading status registers and writing policy/clear commands.
+6. The MCU forwards telemetry (and accepts operator commands) to the host GUI over **UART** (USB–UART bridge on the management link).
+
+### Board-relevant engineering bounds (from `d_c_txt.md`)
+
+| Spec | Requirement | Board implication |
+| --- | --- | --- |
+| USB speed | USB 2.0 Full-Speed (12 Mbps) and Low-Speed (1.5 Mbps) | Diff-pair SI for FS; LS supported |
+| Analog switch turn-off | ≤ 120 ns | Choose / place MUX so FPGA kill meets bound |
+| Per-port power | 2.5 W (5 V @ 500 mA) | eFuse / VBUS sizing |
+| Total power | ≤ 15 W | Aux barrel (or USB-C) for extra current; no host back-feed |
+| Enclosure | ≤ 165 × 115 × 40 mm | PCB 140 × 100 mm must fit with Cmod S7 as daughterboard |
+| Telemetry latency | ≤ 100 ms | MCU + UART path; sensors on I²C |
+
+Agents working in `PCB/` must treat this section and the BOM/routing rules below as the board source of truth, and keep kill, SPI, I²C, and USB tap lengths consistent with the fabric and firmware docs.
 
 ---
 
 ## 1. PCB Stackup & Fabrication Rules
 
-A 4-layer controlled-impedance stackup (standard JLCPCB JLC04161H-7628 / standard FR-4) is specified to guarantee signal integrity across all USB 2.0 High-Speed/Full-Speed differential pairs while maintaining continuous reference ground return paths.
+A 4-layer controlled-impedance stackup (standard JLCPCB JLC04161H-7628 / standard FR-4) is specified to guarantee signal integrity across all USB 2.0 Full-Speed differential pairs while maintaining continuous reference ground return paths.
 
-- **Board Dimensions:** 140.0 mm (Width) × 100.0 mm (Height)
+- **Board Dimensions:** 140.0 mm (Width) × 100.0 mm (Height) (fits enclosure budget above)
 - **Layer Count:** 4 Layers (1.6 mm nominal thickness, 1 oz copper outer/inner)
 - **Minimum Trace Width / Space:** 0.127 mm / 0.127 mm (5/5 mil)
 - **Minimum Drill / Annular Ring:** 0.3 mm hole / 0.15 mm annular ring
@@ -109,19 +142,21 @@ All USB $D+$ and $D-$ differential pairs must strictly follow the USB 2.0 transm
 
 ## 6. Digital Control & Inter-Module Bus Mapping
 
+Per the board architecture: FPGA **kill** lines drive per-port MUX/eFuse enables; MCU **polls** FPGA status over SPI and sensors over I²C; host link is **UART** via the USB–UART bridge (see §0).
 
+### SPI Bus (Cmod S7 $\leftrightarrow$ STM32F411)
 
-### SPI + Interrupt Bus (Cmod S7 $\leftrightarrow$ STM32F411)
-
-Routed on Layer 4 with series $22\Omega$ damping resistors:
+Routed on Layer 4 with series $22\Omega$ damping resistors. MCU = SPI master; FPGA = SPI slave.
 
 - `SPI_SCK` (Clock, Master = STM32)
 - `SPI_MOSI` (Commands / Address)
 - `SPI_MISO` (Telemetry / Descriptors)
 - `SPI_CS_N` (Active-Low Chip Select)
-- `IRQ_N` (Active-Low Hardware Interrupt from FPGA to STM32 EXTI)
+- `IRQ_N` (Optional active-low IRQ from FPGA to STM32 EXTI; baseline firmware is a polling loop)
 
+### Host UART (STM32 $\leftrightarrow$ CP2102 / management USB)
 
+- MCU UART TX/RX to the USB–UART bridge that presents the management COM port to the host GUI.
 
 ### $\text{I}^2\text{C}$ Sensor Bus (STM32 $\leftrightarrow$ INA219 Sensors)
 
