@@ -4,16 +4,19 @@ Instructions for coding agents working in this repository.
 
 ## Purpose
 
-Senior Design project: a **hardware-secure 4-to-1 USB hub**. Custom PCB, FPGA inspection/isolation, MCU management plane, and host software work together to provide hub functionality with per-port power control, threat detection, and operator visibility. Requirements live in `Docs/init_specs.md` and subsystem notes in `Docs/`.
+Senior Design project: a **hardware-secure 4-to-1 USB hub**. Custom PCB, FPGA inspection/isolation, MCU management plane, and host software work together to provide hub functionality with per-port power control, threat detection, and operator visibility.
+
+**Product narrative & engineering tables:** `Docs/d_c_txt.md`. **Requirements checklist:** `Docs/init_specs.md`. Subsystem living specs: board / fabric / firmware docs below.
 
 ## Components
 
 | Path | Role | Agent notes |
 | --- | --- | --- |
-| `Docs/` | Specs, diagrams, reports | Source of truth for requirements; read before implementing |
-| `FPGA/` | HDL, constraints, Vivado project | `make -C FPGA build` / `sim` / `synth` / `gui`; simulation/testbenches preferred before claiming RTL works |
-| `PCB/` | Schematics, layout, BOMs | |
-| `GUI/` | Operator console (FastAPI + React) | `GUI/AGENTS.md`, prototype status in `GUI/state.md` |
+| `Docs/` | Specs, diagrams, reports | `Docs/AGENTS.md`; read area docs before implementing |
+| `FPGA/` | HDL, constraints, Vivado project | `FPGA/AGENTS.md` + **`Docs/fabric_slop.md`** + `Docs/d_c_txt.md`; `make -C FPGA build` / `sim` / `synth` / `gui` |
+| `PCB/` | Schematics, layout, BOMs | `PCB/AGENTS.md` + **`Docs/Board_slop.md`** + `Docs/d_c_txt.md` |
+| Firmware (MCU) | STM32 management plane (sources TBD) | **`Docs/firmwmare_slop.md`** + `Docs/d_c_txt.md` + SPI map in `Docs/fabric_slop.md`; polling loop + UART to GUI |
+| `GUI/` | Operator console (FastAPI + React) | `GUI/AGENTS.md`, prototype status in `GUI/state.md`; protocol aligns with firmware/fabric docs |
 | `Website/` | Public project site (Astro) | `Website/AGENTS.md`, prototype status in `Website/state.md` |
 | `Agents/` | Agent-related project files | |
 
@@ -47,7 +50,11 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 ## Before you change something
 
 1. Read `MAP.md` and the target folder’s README / `AGENTS.md` / `state.md`.
-2. Read the relevant spec in `Docs/`.
+2. Read the **area docs** for that work (mandatory):
+   - **Board / PCB:** `Docs/Board_slop.md`, then `Docs/d_c_txt.md`
+   - **FPGA fabric:** `Docs/fabric_slop.md`, then `Docs/d_c_txt.md`
+   - **MCU firmware:** `Docs/firmwmare_slop.md`, then `Docs/d_c_txt.md` and the SPI/threat sections of `Docs/fabric_slop.md`
+   - Also `Docs/init_specs.md` when touching requirements or acceptance criteria
 3. Prefer extending existing modules over parallel implementations.
 
 ## After you change something
@@ -58,6 +65,13 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 
 ## Subsystem docs
 
+- `Docs/AGENTS.md` — which Docs file is source of truth per area
+- `Docs/d_c_txt.md` — goals, threat model, engineering specs, board/fabric/firmware narratives
+- `Docs/Board_slop.md` — carrier PCB architecture, stackup, BOM
+- `Docs/fabric_slop.md` — FPGA hierarchy, register map, threat codes
+- `Docs/firmwmare_slop.md` — MCU polling loop, UART JSON telemetry
+- `PCB/AGENTS.md` — board agent required reading
+- `FPGA/AGENTS.md` — Vivado project layout, Make targets, RTL conventions
 - `GUI/AGENTS.md` — operator console commands and conventions
 - `Website/AGENTS.md` — Astro dev server
 - `Website/state.md` — what is built vs placeholder vs not built on the public site

@@ -2,6 +2,17 @@
 
 Operator console (`backend/` FastAPI + `frontend/` React). Distinct from the marketing site in `Website/`.
 
+## Protocol / hardware context
+
+Before changing telemetry shapes, threat codes, or “live hardware” claims, read:
+
+- [`Docs/firmwmare_slop.md`](../Docs/firmwmare_slop.md) — UART JSON telemetry / commands (MCU → host)
+- [`Docs/fabric_slop.md`](../Docs/fabric_slop.md) — threat codes and FPGA register semantics
+- [`Docs/d_c_txt.md`](../Docs/d_c_txt.md) — system architecture (FPGA sniff + MCU management plane)
+- Prototype honesty: [`GUI/state.md`](state.md)
+
+Keep `GUI/backend/src/protocol.py` aligned with those docs.
+
 ## Development
 
 Run Make targets from `GUI/` (or `make -C GUI <target>` from the repo root). **Do not** substitute absolute home-directory paths.

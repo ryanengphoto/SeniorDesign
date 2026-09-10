@@ -1,27 +1,63 @@
 # FPGA RTL & Fabric Requirements Specification
 **Project:** Hardware-Isolated USB Security Gateway  
 **Target Device:** Xilinx Spartan-7 XC7S25-CSGA225 (Digilent Cmod S7-25)  
-**Document Version:** 1.1  
-**Target Toolchain:** AMD/Xilinx Vivado ML Standard (2024.1+)  
+**Document Version:** 1.2  
+**Target Toolchain:** AMD/Xilinx Vivado ML Standard (project historically 2017.4 → 2018.2; newer OK if compatible)  
 **Primary Language:** SystemVerilog / Verilog-2001  
+
+**Related docs (read with this file):**
+- Product context / engineering specs: [`Docs/d_c_txt.md`](d_c_txt.md)
+- Requirements: [`Docs/init_specs.md`](init_specs.md)
+- Carrier PCB / pin roles: [`Docs/Board_slop.md`](Board_slop.md)
+- MCU firmware (SPI master + UART GUI): [`Docs/firmwmare_slop.md`](firmwmare_slop.md)
+- Fabric block diagram: [`Docs/BlockDiagrams/Rendered/fabric_bd.jpg`](BlockDiagrams/Rendered/fabric_bd.jpg)
+- Agent workflow: [`FPGA/AGENTS.md`](../FPGA/AGENTS.md)
 
 ---
 
 ## 1. System Overview
 
-The FPGA fabric operates as a 4-channel, line-rate USB protocol inspection engine and hardware firewall. It performs oversampled digital demodulation, packet framing, CRC validation, deep packet inspection (DPI), and nanosecond isolation control across all four downstream USB channels concurrently.
+The FPGA fabric is a **4-channel parallel USB packet sniffer and isolation controller**, not the USB hub itself. Downstream D+/D− are tapped into the FPGA **in parallel** with the hub IC so the inspection path does not extend the USB critical path (target added latency ≤ 1 ns; in-line FPGA placement is a stretch goal — see [`Docs/d_c_txt.md`](d_c_txt.md)).
 
-### Primary Operational Domains
-* **Clock Management Block:** Synthesizes internal timing references from the onboard 12 MHz oscillator.
-* **4x Parallel USB Inspection Channels:** Dedicated, identical RTL pipelines for each physical USB port.
-* **Central Register File:** Memory-mapped register array holding status flags, parsed descriptors, and policy settings.
-* **SPI Slave Interface:** Dedicated 5-wire management bus connecting to the external STM32 MCU.
+On each clock, per-port sniffers inspect traffic, update **stateful status registers**, and can assert **kill** lines to the board analog switches / eFuses. The fabric is an **SPI slave**; the MCU is master and reads/writes the register file for telemetry and policy.
+
+### RTL hierarchy (matches Vivado sources under `FPGA/senior_design.srcs/`)
+
+| Module | Role |
+| --- | --- |
+| `main_wrapper` | Top: clocking, sniffer wrapper, register file, SPI slave |
+| Packet sniffer wrapper | Instantiates **identical** `sniffer_block` × 4; aggregates threat/kill/status into the register file every cycle |
+| `sniffer_block` | Per-port PHY/demod, framing, DPI / timing filters, local kill request |
+| `register_file` | Stateful status + control visible to the MCU over SPI |
+| SPI slave | Mode 0 slave; serves MCU read/write transactions |
+
+Example behavior: a HID keystroke-rate filter uses a time-delta counter; exceeding the human typing bound (50 chars/s → ≈ 20 ms minimum interval; see threat table) isolates that channel and sets the corresponding status bits (e.g. overspeed / `KEYSTROKE_BURST`).
+
+### Primary operational domains
+* **Clock management:** From the Cmod S7 12 MHz oscillator; **48 MHz** is the sniffer oversampling clock (USB FS 4×).
+* **4× parallel sniff channels:** One `sniffer_block` per physical port.
+* **Central register file:** Status flags, descriptors, policy; updated each cycle from sniffers.
+* **SPI slave:** Management bus to the STM32 MCU.
+
+### Fabric-relevant engineering bounds (from `d_c_txt.md`)
+
+| Spec | Requirement |
+| --- | --- |
+| Sniffer clock | 48 MHz |
+| FPGA area | > 8,000 LUTs available (use XC7S25 headroom; keep congestion low) |
+| USB shutoff latency | ≤ 1 µs upper bound, ≤ 100 ns target |
+| Critical-path added latency | ≤ 1 ns (parallel tap) |
+| HID packets to host during quarantine | 0 (after kill) |
+| Post-quarantine attack leakage | ≤ 1 packet |
+| Device enumeration capture window | ≤ 5 ms intent for descriptor-side checks |
+
+Agents changing RTL must keep threat codes and the SPI register map aligned with this document and `GUI/backend/src/protocol.py` when present.
 
 ---
 
 ## 2. Resource Budget & Utilization Targets
 
-The architecture fits within the Spartan-7 XC7S25 envelope with low routing congestion.
+The architecture fits within the Spartan-7 XC7S25 envelope with low routing congestion. Spec floor is **> 8,000 LUTs** available on-device; estimated usage below stays well under that.
 
 | Silicon Resource | Available on XC7S25 | Allocated per Port (x4) | Common Logic | Total Estimated | Target Utilization |
 |---|---|---|---|---|---|
@@ -73,20 +109,20 @@ The design uses three internal clock domains derived from a single `MMCME2_BASE`
 
 ### 4.4. HID Keystroke Timing Filter (`hid_timing_filter.sv`)
 * Uses a 24-bit down-counter running at 48 MHz to measure the time delta ($\Delta t$) between consecutive HID input reports.
-* Flags a `KEYSTROKE_BURST` violation if consecutive keystrokes arrive with $\Delta t < 25\text{ ms}$.
+* Flags a `KEYSTROKE_BURST` / overspeed violation if consecutive keystrokes arrive faster than the human bound (**50 chars/s** → $\Delta t < 20\text{ ms}$; prior 25 ms draft remains a conservative alternate threshold if documented in defines).
 * Enforces a 2.0-second post-enumeration quarantine window to detect automated scripts that fire immediately upon connection.
+* On trip: assert channel kill and update status (e.g. overspeed bit / threat code `0x2`).
 
 ### 4.5. Fast-Path Isolation Controller (`isolation_controller.sv`)
-* Routes threat trigger signals directly through combinatorial logic to the physical control pins.
-* Deasserts the active-low MUX enable line in under 20 nanoseconds to place the TS3USB221 switch into high-impedance mode.
-* Deasserts the eFuse enable line to cut downstream bus power.
+* Routes threat trigger signals with minimal logic to the physical control pins (MUX enable / eFuse enable).
+* Meets system shutoff targets: **≤ 100 ns** preferred, **≤ 1 µs** hard upper bound; board analog switch turn-off budget **≤ 120 ns** ([`Docs/d_c_txt.md`](d_c_txt.md)).
 * Latches the isolation state in hardware until cleared by an authenticated write from the MCU.
 
 ---
 
 ## 5. SPI Slave Register Map
 
-The FPGA implements a 16-bit SPI slave interface operating up to 25 MHz (Mode 0: CPOL=0, CPHA=0, MSB first).
+The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (Mode 0: CPOL=0, CPHA=0, MSB first). Register contents are kept **stateful** as sniffers update them each cycle.
 
 * **Write Frame:** Bit 15 = 1, Bits 14:8 = 7-bit Address, Bits 7:0 = 8-bit Data
 * **Read Frame:** Bit 15 = 0, Bits 14:8 = 7-bit Address, Bits 7:0 = Dummy Byte (Data returned on next byte)
@@ -116,7 +152,7 @@ The FPGA implements a 16-bit SPI slave interface operating up to 25 MHz (Mode 0:
 |:---:|---|---|---|
 | `0x0` | `NO_FAULT` | Normal operation. | Normal passthrough (MUX closed). |
 | `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage port. | Open MUX (<20 ns), cut eFuse, assert IRQ. |
-| `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 25\text{ ms}$ for $>3$ reports. | Open MUX (<20 ns), assert IRQ. |
+| `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open MUX (≤100 ns target), assert status / IRQ. |
 | `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Drop packets, assert IRQ. |
 | `0x4` | `DESCRIPTOR_OVERFLOW` | `wTotalLength > 512` or length mismatch. | Isolate port, assert IRQ. |
 | `0x5` | `CRC_TOKEN_FAULT` | Token CRC-5 or data CRC-16 failure. | Log error, isolate on repeat. |
