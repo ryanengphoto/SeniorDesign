@@ -33,6 +33,7 @@ dist/
 *.tmp/
 db/
 incremental_db/
+*.log
 
 # PCB / KiCad
 *-backups/
