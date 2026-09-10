@@ -11,7 +11,7 @@ Senior Design project: a **hardware-secure 4-to-1 USB hub**. Custom PCB, FPGA in
 | Path | Role | Agent notes |
 | --- | --- | --- |
 | `Docs/` | Specs, diagrams, reports | Source of truth for requirements; read before implementing |
-| `FPGA/` | HDL, constraints, Vivado project | Simulation/testbenches preferred before claiming RTL works |
+| `FPGA/` | HDL, constraints, Vivado project | `make -C FPGA build` / `sim` / `synth` / `gui`; simulation/testbenches preferred before claiming RTL works |
 | `PCB/` | Schematics, layout, BOMs | |
 | `GUI/` | Operator console (FastAPI + React) | `GUI/AGENTS.md`, prototype status in `GUI/state.md` |
 | `Website/` | Public project site (Astro) | `Website/AGENTS.md`, prototype status in `Website/state.md` |
@@ -27,6 +27,7 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 
 | Path | Common commands |
 | --- | --- |
+| `FPGA/` | `make -C FPGA build`, `make -C FPGA sim`, `make -C FPGA synth`, `make -C FPGA gui`, `make -C FPGA clean` |
 | `GUI/` | `make -C GUI dev`, `make -C GUI backend`, `make -C GUI frontend`, `make -C GUI stop` |
 
 **Testable.** Add or run checks appropriate to the change: `npm run build`, pytest, Vivado sim, lint. If tests do not exist yet, verify manually with the Make/dev workflow and say what you ran.

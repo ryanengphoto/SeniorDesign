@@ -1,0 +1,54 @@
+# Vivado — source-based revision control
+# Track: *.xpr, *.srcs/ (HDL, constraints, IP/BD sources), Tcl scripts
+# Regenerate: cache, runs, sim, hw, IP user files, .gen outputs
+
+# Tool-generated project directories
+*.cache/
+*.runs/
+*.sim/
+*.hw/
+*.ip_user_files/
+*.gen/
+*.sdk/
+*.vitis/
+*.xsa/
+
+# Vivado local / temp
+.Xil/
+.jobs/
+*.jou
+*.log
+*.str
+*.debug
+*.tmp
+*.rst
+*.pb
+*.dmp
+
+# Bitstreams, checkpoints, reports (usually under *.runs/; catch strays)
+*.bit
+*.bin
+*.ltx
+*.dcp
+*.hwdef
+*.rpx
+*.rpt
+*.vds
+*.vdi
+*.wdf
+
+# Auto-generated stubs / sim models from IP
+*_stub.v
+*_stub.vhdl
+*_funcsim.v
+*_funcsim.vhdl
+
+# Project backups / editor noise
+*.backup.xpr
+*.xpr.bak
+*~
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
