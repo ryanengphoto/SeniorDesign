@@ -11,18 +11,20 @@
 // Target Devices: Simulation only
 // Tool Versions: Vivado 2018.2
 // Description:
-//   Behavioral testbench for sniffer_block (and later sniffer_wrapper).
-//   Will drive a 48 MHz clock, apply rst, and inject USB FS line
-//   sequences to check threat detection and kill behavior.
+//   Dummy smoke testbench for sniffer_block. Instantiates the DUT,
+//   drives one 48 MHz clock cycle, then prints TEST PASSED and $finish.
+//   scripts/check_sim.py scores these tokens from the sim log (Windows-safe;
+//   no grep, does not launch Vivado).
 //
 // Dependencies:  sniffer_block
 //
 // Notes:
-//   Skeleton only — clk/rst generated here; no stimulus or DUT I/O yet.
-//   These stubs are not verified hardware behavior.
+//   Dummy / placeholder — clk/rst only. USB line stimulus and threat
+//   checks are not implemented. A pass here is elaboration + one cycle,
+//   not verified hardware behavior.
 //
 // Revision:
-// Revision 0.01 - File Created (skeleton)
+// Revision 0.02 - Dummy one-cycle smoke test with TEST PASSED/FAILED
 //////////////////////////////////////////////////////////////////////////////////
 
 module tb_sniffer;
@@ -30,6 +32,35 @@ module tb_sniffer;
     logic clk;
     logic rst;
 
-    // TODO: clock/reset generation, DUT instance, USB line stimulus.
+    // Dummy result flag. Functional checks replace this later.
+    logic test_ok;
+
+    sniffer_block dut (
+        .clk (clk),
+        .rst (rst)
+    );
+
+    // 48 MHz sniffer clock: period = 1e9 / 48e6 ≈ 20.833 ns
+    localparam real CLK_HALF_NS = 10.4165;
+
+    initial begin
+        clk     = 1'b0;
+        rst     = 1'b1;
+        test_ok = 1'b0;
+
+        #(CLK_HALF_NS);
+        clk = 1'b1;
+        #(CLK_HALF_NS);
+        clk = 1'b0;
+
+        // Dummy smoke test: DUT elaborated and one cycle completed.
+        test_ok = 1'b1;
+
+        if (test_ok)
+            $display("TEST PASSED");
+        else
+            $display("TEST FAILED");
+        $finish;
+    end
 
 endmodule

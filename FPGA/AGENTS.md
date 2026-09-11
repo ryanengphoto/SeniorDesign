@@ -42,7 +42,8 @@ Run from `FPGA/` or `make -C FPGA <target>` from the repo root.
 | `make help` | List targets and overrides |
 | `make synth` | Synthesis only (`scripts/synth.tcl`) |
 | `make build` | Synth + implement + bitstream (`scripts/build.tcl`) |
-| `make sim` | Behavioral XSim (`scripts/sim.tcl`); needs a testbench as sim top |
+| `make sim` | Behavioral XSim (`scripts/sim.tcl`); default top `tb_sniffer`. Then Python scores the log |
+| `make sim-status` | Score last `sim_last.log` / XSim `simulate.log` (no Vivado) |
 | `make gui` | Open `senior_design.xpr` in the Vivado GUI |
 | `make clean` | Remove generated Vivado dirs/logs (keeps sources + `.xpr`) |
 
@@ -52,14 +53,16 @@ Overrides:
 | --- | --- |
 | `VIVADO=…` | Path to `vivado` / `vivado.bat` if not on PATH |
 | `VIVADO_JOBS=N` | Parallel jobs for runs (default 4) |
-| `SIM_TOP=module` | Override `sim_1` top module |
+| `SIM_TOP=module` | Override `sim_1` top module (default `tb_sniffer`) |
 | `SIM_TIME=10us` | Fixed sim runtime instead of `run all` |
+| `PYTHON=python` | Interpreter for `scripts/check_sim.py` |
 
 Examples:
 
 ```bash
 make -C FPGA synth
 make -C FPGA build
+make -C FPGA sim
 make -C FPGA sim SIM_TOP=tb_sniffer
 make -C FPGA gui
 ```
@@ -67,8 +70,8 @@ make -C FPGA gui
 ## Agent conventions
 
 1. Complete the **Required reading** list above before changing RTL or the register map.
-2. Prefer **simulation** before claiming RTL works; add/extend testbenches under `senior_design.srcs/sim_1/`.
-3. After RTL changes, run `make -C FPGA sim` and/or `make -C FPGA synth` as appropriate and report what ran.
+2. Prefer **simulation** before claiming RTL works; add/extend testbenches under `senior_design.srcs/sim_1/`. Each TB must `$display("TEST PASSED")` or `$display("TEST FAILED")` before `$finish`. `scripts/check_sim.py` reads those tokens from the sim log (Python, not grep — this repo is used on Windows); it does not launch Vivado.
+3. After RTL changes, run `make -C FPGA sim` and/or `make -C FPGA synth` as appropriate and report the **SIM RESULT** line (`TEST PASSED` / `TEST FAILED`). Re-score an existing log with `make -C FPGA sim-status`. `tb_sniffer` is a **dummy** one-cycle smoke test, not functional threat-detection coverage.
 4. Keep protocol/register/threat definitions aligned with `Docs/fabric_slop.md` and (when present) `GUI/backend/src/protocol.py`.
 5. Do not present empty stubs or unsimulated modules as verified hardware behavior.
 6. Use `make -C FPGA gui` when interactive debug is needed; keep batch Make as the default CI-style path.

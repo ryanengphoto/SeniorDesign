@@ -2,8 +2,11 @@
 # Usage: vivado -mode batch -source scripts/sim.tcl
 # Run from FPGA/ (Makefile does this).
 #
-# Requires a testbench as the sim_1 top (File → Simulation Sources).
-# Until then, Vivado will elaborate whatever is set as sim top (currently main_wrapper).
+# Default sim top is tb_sniffer (dummy smoke test). Override with
+#   make sim SIM_TOP=...
+# Testbenches must $display TEST PASSED or TEST FAILED. After this
+# Tcl finishes, check_sim.py scores sim_last.log / simulate.log
+# (Windows-safe, no grep; does not launch Vivado).
 
 set script_dir [file dirname [file normalize [info script]]]
 set proj_dir   [file normalize [file join $script_dir ..]]
@@ -17,13 +20,14 @@ puts "Opening $proj_file"
 open_project $proj_file
 
 set sim_top [get_property top [get_filesets sim_1]]
-puts "Simulation top: $sim_top"
+puts "Simulation top (project): $sim_top"
 
-# Optional override: make sim SIM_TOP=tb_foo
+# make sim SIM_TOP=...  (Makefile defaults to tb_sniffer)
 if {[info exists ::env(SIM_TOP)] && $::env(SIM_TOP) ne ""} {
   set_property top $::env(SIM_TOP) [get_filesets sim_1]
+  set_property top_auto_set false [get_filesets sim_1]
   update_compile_order -fileset sim_1
-  puts "Overrode sim top → $::env(SIM_TOP)"
+  puts "Using sim top → $::env(SIM_TOP)"
 }
 
 launch_simulation
