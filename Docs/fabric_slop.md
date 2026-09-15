@@ -109,14 +109,15 @@ The design uses three internal clock domains derived from a single `MMCME2_BASE`
 
 ### 4.4. HID Keystroke Timing Filter (`hid_timing_filter.sv`)
 * Uses a 24-bit down-counter running at 48 MHz to measure the time delta ($\Delta t$) between consecutive HID input reports.
-* Flags a `KEYSTROKE_BURST` / overspeed violation if consecutive keystrokes arrive faster than the human bound (**50 chars/s** → $\Delta t < 20\text{ ms}$; prior 25 ms draft remains a conservative alternate threshold if documented in defines).
-* Enforces a 2.0-second post-enumeration quarantine window to detect automated scripts that fire immediately upon connection.
-* On trip: assert channel kill and update status (e.g. overspeed bit / threat code `0x2`).
+* Flags a `KEYSTROKE_BURST` / overspeed violation if consecutive keystrokes arrive faster than the human bound (**50 chars/s** → $\Delta t < 20\text{ ms}$).
+* **HID confirm (first layer, parallel-tap):** after descriptors show an HID keyboard, set `hid_locked` and **open the high-speed analog switch** so the device is cut off from the hub/host (no further packets). GUI prompts the operator to click confirm (“keyboard plugged in”). MCU pulses `CONTROL.confirm_hid` → clear `hid_locked`, **close the analog switch**, traffic resumes. Then enforce cooldown / rate checks.
+* On trip: assert channel kill (open analog switch) and update status (e.g. threat code `0x2`).
 
 ### 4.5. Fast-Path Isolation Controller (`isolation_controller.sv`)
-* Routes threat trigger signals with minimal logic to the physical control pins (MUX enable / eFuse enable).
+* Routes threat / `hid_locked` / manual-kill to the **high-speed analog switch** enable (and eFuse as specified).
 * Meets system shutoff targets: **≤ 100 ns** preferred, **≤ 1 µs** hard upper bound; board analog switch turn-off budget **≤ 120 ns** ([`Docs/d_c_txt.md`](d_c_txt.md)).
-* Latches the isolation state in hardware until cleared by an authenticated write from the MCU.
+* Latches isolation until MCU clear / HID confirm as applicable.
+* Convention: **switch open** = path cut (isolated); **switch closed** = connected to hub (packets flow).
 
 ---
 
@@ -127,22 +128,40 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 * **Write Frame:** Bit 15 = 1, Bits 14:8 = 7-bit Address, Bits 7:0 = 8-bit Data
 * **Read Frame:** Bit 15 = 0, Bits 14:8 = 7-bit Address, Bits 7:0 = Dummy Byte (Data returned on next byte)
 
-| Address (Hex) | Register Name | Access | Reset | Description / Bit Definitions |
-|:---:|---|:---:|:---:|---|
-| `0x00` | `SYS_STATUS` | RO | `0x00` | `[7:4]` Global Error Code, `[3:0]` Active IRQ flags for Ports 3 to 0 |
-| `0x01` | `SYS_CONTROL` | RW | `0x00` | `[7]` Global Soft Reset, `[3:0]` Force Global MUX Enable Override |
-| `0x02` | `PORT_IRQ_STATUS` | RO | `0x00` | `[7:4]` Reserved, `[3:0]` Unserviced IRQ per port (Cleared on read) |
-| `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill, `[6]` Clear Fault, `[2:0]` Policy Mode |
-| `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` Configured, `[3:0]` Threat Code |
-| `0x12` | `P0_VID_HIGH` | RO | `0x00` | Parsed Vendor ID High Byte (`VID[15:8]`) |
-| `0x13` | `P0_VID_LOW` | RO | `0x00` | Parsed Vendor ID Low Byte (`VID[7:0]`) |
-| `0x14` | `P0_PID_HIGH` | RO | `0x00` | Parsed Product ID High Byte (`PID[15:8]`) |
-| `0x15` | `P0_PID_LOW` | RO | `0x00` | Parsed Product ID Low Byte (`PID[7:0]`) |
-| `0x16` | `P0_DEV_CLASS` | RO | `0x00` | Parsed `bDeviceClass` byte |
-| `0x17` | `P0_INT_CLASS` | RO | `0x00` | Parsed `bInterfaceClass` byte |
-| `0x20 – 0x27` | `P1_REGS[0:7]` | — | — | Channel 1 Mirror Registers (Offsets match `0x10–0x17`) |
-| `0x30 – 0x37` | `P2_REGS[0:7]` | — | — | Channel 2 Mirror Registers (Offsets match `0x10–0x17`) |
-| `0x40 – 0x47` | `P3_REGS[0:7]` | — | — | Channel 3 Mirror Registers (Offsets match `0x10–0x17`) |
+### Addressing (dynamic — do not hardcode per-port addresses)
+
+```
+addr = PORT_REG_BASE + port * PORT_REG_STRIDE + offset
+```
+
+| Constant | Value | Meaning |
+|---|:---:|---|
+| `PORT_REG_BASE` | `0x00` | First port bank |
+| `PORT_REG_STRIDE` | `0x02` | Bytes per port |
+
+| Offset | Name | Access | Bits / role |
+|:---:|---|:---:|---|
+| `0` | CONTROL | RW | `[7]` Manual Kill, `[6]` Clear Fault, `[5]` **Confirm HID** (GUI click strobe), `[2:0]` Policy Mode |
+| `1` | STATUS | RO | `[7]` Isolated, `[6]` Attached, `[5]` Configured, `[4]` **HID locked**, `[3:0]` Threat Code |
+
+| Port | CONTROL | STATUS |
+|:---:|:---:|:---:|
+| 0 | `0x00` | `0x01` |
+| 1 | `0x02` | `0x03` |
+| 2 | `0x04` | `0x05` |
+| 3 | `0x06` | `0x07` |
+
+### HID confirm flow (GUI click; analog-switch quarantine)
+
+1. Device enumerates; sniffer sees HID keyboard → set `STATUS.hid_locked`, set `isolated`, **open high-speed analog switch** (host path cut; aim ≤1 packet leakage).
+2. Telemetry shows `hid_locked: true` / `QUARANTINED`; **GUI prompts** “Keyboard detected — confirm?”
+3. Operator **clicks confirm** → host command → MCU SPI-pulses `CONTROL.confirm_hid`.
+4. FPGA clears `hid_locked` / `isolated` and **closes the analog switch** so packets can flow again.
+5. Keystroke-rate / cooldown filters run as the second layer.
+
+No unlock PIN in this baseline (parallel tap cannot block host while still capturing on-device keystrokes).
+
+Out-of-range addresses read `0x00` and ignore writes.
 
 ---
 
@@ -150,14 +169,14 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 
 | Threat Code (`4'h_`) | Threat Name | Trigger Condition | Hardware Action |
 |:---:|---|---|---|
-| `0x0` | `NO_FAULT` | Normal operation. | Normal passthrough (MUX closed). |
-| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage port. | Open MUX (<20 ns), cut eFuse, assert IRQ. |
-| `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open MUX (≤100 ns target), assert status / IRQ. |
-| `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Drop packets, assert IRQ. |
+| `0x0` | `NO_FAULT` | Normal operation. | Analog switch closed (connected). |
+| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage port. | Open analog switch (<20 ns), cut eFuse, assert IRQ. |
+| `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open analog switch (≤100 ns target), assert status / IRQ. |
+| `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Isolate / open switch, assert IRQ. |
 | `0x4` | `DESCRIPTOR_OVERFLOW` | `wTotalLength > 512` or length mismatch. | Isolate port, assert IRQ. |
 | `0x5` | `CRC_TOKEN_FAULT` | Token CRC-5 or data CRC-16 failure. | Log error, isolate on repeat. |
 | `0x6` | `BIT_STUFF_ERROR` | Seven consecutive ones with no transition. | Reset port receiver, isolate. |
-| `0x7` | `MANUAL_HOST_KILL` | User command via GUI. | Open MUX, cut eFuse. |
+| `0x7` | `MANUAL_HOST_KILL` | User command via GUI. | Open analog switch, cut eFuse. |
 
 ---
 

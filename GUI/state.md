@@ -120,7 +120,8 @@ Defined in code and used end-to-end in mock mode:
 
 **MCU → host:** `telemetry`, `event`, `snapshot` (backend extension for UI on connect)
 
-**Host → MCU:** `isolate_port`, `restore_port`, `clear_fault`
+**Host → MCU:** `isolate_port`, `restore_port`, `clear_fault`, `confirm_hid` (GUI click when `hid_locked`)
+
 
 **Enums:** port states (`DISCONNECTED` … `MANUAL_BLOCKED`); threat codes 0–7 per `Docs/fabric_slop.md` §6
 

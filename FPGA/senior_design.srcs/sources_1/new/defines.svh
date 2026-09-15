@@ -8,14 +8,12 @@
 // Tool Versions: Vivado 2018.2
 // Description:
 //   Shared constants for the FPGA fabric: port count, clock rates, SPI
-//   register addresses, and threat classification codes. Include this
-//   header from RTL modules; do not scatter magic numbers in the design.
-//   Values must stay aligned with Docs/fabric_slop.md (and GUI protocol
-//   when present).
+//   widths/addressing, threat codes, and register structs. Include from
+//   RTL; keep aligned with Docs/fabric_slop.md.
 //
 // Notes:
-//   Skeleton header — macros below document the contract. Functional
-//   RTL that consumes them has not been implemented yet.
+//   Per-port map: CONTROL + STATUS only. Addresses are
+//   BASE + port*STRIDE + offset — do not hardcode per-port addrs.
 //////////////////////////////////////////////////////////////////////////////////
 
 // -----------------------------------------------------------------------------
@@ -28,7 +26,7 @@
 // -----------------------------------------------------------------------------
 `define CLK_12M_HZ          12_000_000   // Cmod S7 onboard oscillator
 `define CLK_48M_HZ          48_000_000   // USB FS 4x oversample (sniffer)
-`define CLK_100M_HZ         100_000_000  // SPI slave / register file domain
+`define CLK_100M_HZ         100_000_000  // optional fast domain (not required)
 
 // -----------------------------------------------------------------------------
 // HID timing filter (48 MHz ticks)
@@ -38,20 +36,23 @@
 `define HID_QUARANTINE_MS   2000
 
 // -----------------------------------------------------------------------------
-// SPI register map (7-bit addresses; see Docs/fabric_slop.md section 5)
+// SPI framing (Docs/fabric_slop.md section 5)
 // -----------------------------------------------------------------------------
-`define ADDR_SYS_STATUS     7'h00
-`define ADDR_SYS_CONTROL    7'h01
-`define ADDR_PORT_IRQ       7'h02
-`define ADDR_P0_CONTROL     7'h10
-`define ADDR_P0_STATUS      7'h11
-`define ADDR_P0_VID_HIGH    7'h12
-`define ADDR_P0_VID_LOW     7'h13
-`define ADDR_P0_PID_HIGH    7'h14
-`define ADDR_P0_PID_LOW     7'h15
-`define ADDR_P0_DEV_CLASS   7'h16
-`define ADDR_P0_INT_CLASS   7'h17
-// Ports 1–3 mirror P0 at 0x20, 0x30, 0x40.
+`define SPI_ADDR_WIDTH      7
+`define SPI_DATA_WIDTH      8
+
+// -----------------------------------------------------------------------------
+// SPI register map — dynamic per-port addressing
+//   addr = PORT_REG_BASE + port * PORT_REG_STRIDE + offset
+//   port 0: CONTROL 0x00, STATUS 0x01
+//   port 1: CONTROL 0x02, STATUS 0x03
+// -----------------------------------------------------------------------------
+`define PORT_REG_BASE       7'h00
+`define PORT_REG_STRIDE     7'h02
+`define PORT_OFF_CONTROL    1'b0
+`define PORT_OFF_STATUS     1'b1
+`define PORT_REG_ADDR(port, off) \
+    ((`PORT_REG_BASE) + ((port) * (`PORT_REG_STRIDE)) + (off))
 
 // -----------------------------------------------------------------------------
 // Threat classification codes (4-bit; Docs/fabric_slop.md section 6)
@@ -64,5 +65,31 @@
 `define THREAT_CRC_TOKEN_FAULT      4'h5
 `define THREAT_BIT_STUFF_ERROR      4'h6
 `define THREAT_MANUAL_HOST_KILL     4'h7
+
+// -----------------------------------------------------------------------------
+// Per-port CONTROL (offset 0)
+// [7] Manual Kill, [6] Clear Fault, [5] Confirm HID (GUI click unlock),
+// [4:3] reserved, [2:0] Policy Mode
+// -----------------------------------------------------------------------------
+typedef struct packed {
+    logic       manual_kill;  // [7] force isolate (open analog switch)
+    logic       clear_fault;  // [6]
+    logic       confirm_hid;  // [5] strobe: operator confirmed keyboard in GUI
+    logic [1:0] reserved;     // [4:3]
+    logic [2:0] policy_mode;  // [2:0]
+} control_reg_t;
+
+// -----------------------------------------------------------------------------
+// Per-port STATUS (offset 1)
+// [7] Isolated, [6] Attached, [5] Configured, [4] HID locked (awaiting confirm),
+// [3:0] Threat Code
+// -----------------------------------------------------------------------------
+typedef struct packed {
+    logic       isolated;    // [7] analog switch open / path cut
+    logic       attached;    // [6]
+    logic       configured;  // [5]
+    logic       hid_locked;  // [4] 1 = HID seen, waiting for GUI confirm
+    logic [3:0] threat_code; // [3:0]
+} status_reg_t;
 
 `endif // DEFINES_SVH

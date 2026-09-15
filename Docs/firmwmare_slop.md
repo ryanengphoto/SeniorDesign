@@ -20,7 +20,7 @@
 The STM32 runs exclusively on the **out-of-band management plane**. It does not handle, buffer, or route USB data packets between peripherals and the host. Packet inspection and kill decisions live in the FPGA; electrical clamping lives on the PCB.
 
 ### Primary responsibilities
-* **Poll FPGA status:** SPI master → FPGA slave; refresh per-port status / threat / descriptor registers.
+* **Poll FPGA status:** SPI master → FPGA slave; refresh per-port CONTROL/STATUS (threat + isolation flags).
 * **Poll analog sensors:** I²C master to per-port INA219 (or equivalent) current/voltage monitors.
 * **Forward telemetry to GUI:** Stream structured frames over **UART** to the host (via onboard USB–UART bridge). Target end-to-end telemetry freshness **≤ 100 ms** ([`Docs/d_c_txt.md`](d_c_txt.md)).
 * **Accept operator commands:** Decode host commands (JSON) and translate to SPI writes (manual kill, clear fault, re-enable, policy).
@@ -61,9 +61,8 @@ MCU clock requirement: **≥ 50 MHz** ([`Docs/d_c_txt.md`](d_c_txt.md)).
 Baseline is one non-blocking super-loop. Logical modules (files) below may be separate compilation units without introducing RTOS unless needed.
 
 ### 3.1. FPGA bridge (`fpga_bridge.c`)
-* SPI transactions matching [`Docs/fabric_slop.md`](fabric_slop.md) §5 (16-bit framing, register map `0x00`–`0x47`).
-* Periodic burst read of `SYS_STATUS`, per-port `Pn_STATUS`, VID/PID/class bytes.
-* Write path for `Pn_CONTROL` (manual kill, clear fault, policy) and soft reset.
+* SPI transactions matching [`Docs/fabric_slop.md`](fabric_slop.md) §5 (16-bit framing; addr = `BASE + port*STRIDE + offset`).
+* Periodic read of per-port `STATUS`; on `hid_locked`: surface GUI “confirm keyboard” prompt. On confirm command: SPI-pulse `CONTROL.confirm_hid` (closes high-speed analog switch / clears lock).
 * Optional: if `IRQ_N` is wired, an EXTI ISR may set a “service FPGA now” flag; the loop still owns SPI.
 
 ### 3.2. Power monitor (`power_monitor.c`)
@@ -73,8 +72,10 @@ Baseline is one non-blocking super-loop. Logical modules (files) below may be se
 
 ### 3.3. Port state (`policy_engine.c`)
 * Per-port states: `DISCONNECTED`, `ENUMERATING`, `AUTHORIZED`, `QUARANTINED`, `MANUAL_BLOCKED`.
-* Map FPGA threat codes 0–7 ([`Docs/fabric_slop.md`](fabric_slop.md) §6) into those states.
-* Whitelist / challenge / staging power are **advanced**; stub clearly if unimplemented.
+* Map FPGA threat codes 0–7 ([`Docs/fabric_slop.md`](fabric_slop.md) §6) into those states; `STATUS.hid_locked` → `QUARANTINED` until GUI confirm.
+* HID confirm: host `confirm_hid` → SPI `CONTROL.confirm_hid` → re-read `hid_locked` / `isolated`.
+* Staging power / VID whitelist UI are **advanced**; stub clearly if unimplemented.
+
 
 ### 3.4. Host link (`telemetry_proto.c`)
 * Outbound: newline-delimited JSON on UART @ a rate that meets ≤ 100 ms freshness.
@@ -95,6 +96,7 @@ The STM32 exchanges human-readable, newline-delimited JSON with the host Python/
       "port": 0,
       "state": "AUTHORIZED",
       "threat_code": 0,
+      "hid_locked": false,
       "vbus_mv": 5020,
       "current_ma": 42,
       "vid": "0x0781",
@@ -105,7 +107,8 @@ The STM32 exchanges human-readable, newline-delimited JSON with the host Python/
     {
       "port": 1,
       "state": "QUARANTINED",
-      "threat_code": 1,
+      "threat_code": 0,
+      "hid_locked": true,
       "vbus_mv": 0,
       "current_ma": 0,
       "vid": "0x046D",
@@ -123,6 +126,7 @@ Threat codes and register fields must match [`Docs/fabric_slop.md`](fabric_slop.
 Minimum set (names may match GUI protocol enums):
 * Manual isolate / re-enable port
 * Clear fault latch on FPGA
+* **Confirm HID** (`confirm_hid`) — operator clicked “this is a keyboard” → `CONTROL.confirm_hid`
 * Soft policy mode change (when implemented)
 
 Exact JSON schemas live with the GUI protocol module; update both sides together.
