@@ -44,8 +44,5 @@ body {
   animation: pulse-glow 6s ease-in-out infinite;
 }
 
-[data-animate],
-[data-stagger-item],
-[data-hero-item] {
-  opacity: 0;
-}
+/* Animation initial state is applied by JS only (progressive enhancement).
+   Do not set opacity:0 in CSS — if Motion fails to load, content would stay invisible. */

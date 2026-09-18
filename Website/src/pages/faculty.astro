@@ -1,0 +1,130 @@
+---
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+
+// From D_and_C_SD1_v2.pdf cover page
+const committee = [
+  {
+    name: "Dr. Mike Borowczak",
+    title: "Associate Professor",
+    role: "Review committee",
+  },
+  {
+    name: "Dr. Chris Ianello",
+    title: "Professor of Practice",
+    role: "Review committee",
+  },
+  {
+    name: "Dr. Fan Yao",
+    title: "Associate Professor",
+    role: "Review committee",
+  },
+];
+
+const advisor = {
+  name: "Dr. Suboh Suboh",
+  title: "Associate Lecturer",
+  role: "Advisor",
+};
+
+function initials(name: string): string {
+  return name
+    .replace(/^Dr\.\s+/i, "")
+    .split(/\s+/)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
+const base = import.meta.env.BASE_URL;
+---
+
+<Base
+  title="Faculty | USB Peripheral Interface Security System"
+  description="Review committee and advisor for Group 19 Senior Design."
+>
+  <Nav />
+  <main class="mx-auto max-w-6xl px-6 pt-32 pb-24">
+    <div data-animate="fade-up">
+      <p class="font-mono text-sm tracking-widest text-accent uppercase">
+        Faculty
+      </p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight">
+        Review committee &amp; advisor
+      </h1>
+      <p class="mt-4 max-w-2xl text-muted">
+        Faculty listed on the Divide and Conquer cover page for Group 19 — USB
+        Peripheral Interface Security System.
+      </p>
+    </div>
+
+    <section class="mt-14" data-animate="fade-up">
+      <p class="font-mono text-sm tracking-widest text-accent uppercase">
+        Advisor
+      </p>
+      <article
+        class="mt-4 max-w-md rounded-xl border border-border bg-surface p-6 transition-colors hover:border-accent/30"
+      >
+        <div class="flex items-center gap-4">
+          <div
+            class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-surface-raised font-mono text-accent"
+          >
+            {initials(advisor.name)}
+          </div>
+          <div>
+            <p class="font-mono text-xs tracking-wide text-accent uppercase">
+              {advisor.role}
+            </p>
+            <h2 class="text-lg font-semibold">{advisor.name}</h2>
+            <p class="text-sm text-muted">{advisor.title}</p>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="mt-16" data-animate="fade-up">
+      <p class="font-mono text-sm tracking-widest text-accent uppercase">
+        Review committee
+      </p>
+      <div
+        data-animate="stagger"
+        class="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        {
+          committee.map(({ name, title, role }) => (
+            <article
+              data-stagger-item
+              class="rounded-xl border border-border bg-surface p-6 transition-colors hover:border-accent/30"
+            >
+              <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-surface-raised font-mono text-accent">
+                {initials(name)}
+              </div>
+              <p class="font-mono text-xs tracking-wide text-accent uppercase">
+                {role}
+              </p>
+              <h2 class="mt-1 font-semibold">{name}</h2>
+              <p class="mt-1 text-sm text-muted">{title}</p>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <p class="mt-16 flex flex-wrap gap-4 text-sm">
+      <a
+        href={base}
+        class="text-accent transition-colors hover:text-accent-dim"
+      >
+        &larr; Back to home
+      </a>
+      <a
+        href={`${base}team/`}
+        class="text-accent transition-colors hover:text-accent-dim"
+      >
+        Student team &rarr;
+      </a>
+    </p>
+  </main>
+  <SiteFooter />
+</Base>

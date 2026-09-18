@@ -1,12 +1,21 @@
 ---
+const base = import.meta.env.BASE_URL;
+
 const links = [
-  { href: "/#overview", label: "Overview" },
-  { href: "/#security", label: "Security" },
-  { href: "/#architecture", label: "Architecture" },
-  { href: "/team", label: "Team" },
+  { href: `${base}#overview`, label: "Overview", match: "home" },
+  { href: `${base}#security`, label: "Security", match: "home" },
+  // Hidden until diagrams are ready:
+  // { href: `${base}#architecture`, label: "Architecture", match: "home" },
+  { href: `${base}documents/`, label: "Documents", match: "documents" },
+  { href: `${base}team/`, label: "Team", match: "team" },
+  { href: `${base}faculty/`, label: "Faculty", match: "faculty" },
 ];
 
-const currentPath = Astro.url.pathname;
+const path = Astro.url.pathname;
+const onTeam = path.includes("/team");
+const onFaculty = path.includes("/faculty");
+const onDocuments = path.includes("/documents");
+const onHome = !onTeam && !onFaculty && !onDocuments;
 ---
 
 <nav
@@ -16,18 +25,22 @@ const currentPath = Astro.url.pathname;
     class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4"
   >
     <a
-      href="/"
+      href={base}
       class="font-mono text-sm font-medium tracking-wide text-accent transition-colors hover:text-accent-dim"
     >
-      USB-HUB<span class="text-muted">/SD</span>
+      Group 19
     </a>
     <ul class="flex items-center gap-6">
       {
-        links.map(({ href, label }) => {
+        links.map(({ href, label, match }) => {
           const isActive =
-            href === "/team"
-              ? currentPath === "/team"
-              : currentPath === "/" && href.startsWith("/#");
+            match === "team"
+              ? onTeam
+              : match === "faculty"
+                ? onFaculty
+                : match === "documents"
+                  ? onDocuments
+                  : onHome;
           return (
             <li>
               <a

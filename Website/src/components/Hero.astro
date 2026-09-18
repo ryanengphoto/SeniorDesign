@@ -1,3 +1,7 @@
+---
+const base = import.meta.env.BASE_URL;
+---
+
 <section
   data-hero
   class="relative flex min-h-[90vh] items-center overflow-hidden pt-20"
@@ -16,35 +20,44 @@
       data-hero-item
       class="mb-4 font-mono text-sm tracking-widest text-accent uppercase"
     >
-      Senior Design 2026
+      Group 19 · Fall 2026 / Spring 2027 · ECE Senior Design
     </p>
     <h1
       data-hero-item
-      class="max-w-3xl text-4xl leading-tight font-bold tracking-tight sm:text-5xl lg:text-6xl"
+      class="max-w-4xl text-4xl leading-tight font-bold tracking-tight sm:text-5xl lg:text-6xl"
     >
-      Hardware-secure<br />
-      <span class="text-accent">4-to-1 USB Hub</span>
+      USB Peripheral Interface<br />
+      <span class="text-accent">Security System</span>
     </h1>
     <p
       data-hero-item
       class="mt-6 max-w-2xl text-lg leading-relaxed text-muted"
     >
-      A USB hub with built-in surge protection, input isolation, and firmware-level
-      defenses against BadUSB, HID injection, and other device-based attacks.
+      A four-port USB hub with hardware-enforced surge protection, port isolation,
+      and FPGA-based defenses against BadUSB, HID injection, and other
+      device-based attacks.
     </p>
     <div data-hero-item class="mt-10 flex flex-wrap gap-4">
       <a
-        href="#architecture"
+        href={`${base}documents/`}
         class="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-bg transition-transform hover:scale-[1.02] active:scale-[0.98]"
+      >
+        Divide and Conquer PDF
+      </a>
+      <a
+        href={`${base}team/`}
+        class="rounded-lg border border-border px-6 py-3 text-sm font-medium text-text transition-colors hover:border-accent/50 hover:text-accent"
+      >
+        Meet the team
+      </a>
+      {/* Hidden until architecture diagrams are ready for the public site
+      <a
+        href="#architecture"
+        class="rounded-lg border border-border px-6 py-3 text-sm font-medium text-text transition-colors hover:border-accent/50 hover:text-accent"
       >
         View architecture
       </a>
-      <a
-        href="#security"
-        class="rounded-lg border border-border px-6 py-3 text-sm font-medium text-text transition-colors hover:border-accent/50 hover:text-accent"
-      >
-        Security features
-      </a>
+      */}
     </div>
   </div>
 </section>

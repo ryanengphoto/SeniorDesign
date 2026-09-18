@@ -1,0 +1,72 @@
+---
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+
+const base = import.meta.env.BASE_URL;
+const pdfHref = `${base}docs/divide-and-conquer.pdf`;
+---
+
+<Base
+  title="Documents | USB Peripheral Interface Security System"
+  description="Divide and Conquer Assignment (project proposal) for Group 19."
+>
+  <Nav />
+  <main class="mx-auto max-w-6xl px-6 pt-32 pb-16">
+    <div data-animate="fade-up">
+      <p class="font-mono text-sm tracking-widest text-accent uppercase">
+        Documents
+      </p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight">
+        Divide and Conquer Assignment
+      </h1>
+      <p class="mt-4 max-w-2xl text-muted">
+        Project proposal (SD1) covering motivation, goals, threat model, and
+        engineering specifications for the USB Peripheral Interface Security
+        System.
+      </p>
+      <div class="mt-6 flex flex-wrap gap-3">
+        <a
+          href={pdfHref}
+          download="D_and_C_SD1_v2.pdf"
+          class="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg transition-transform hover:scale-[1.02]"
+        >
+          Download PDF
+        </a>
+        <a
+          href={pdfHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-accent transition-colors hover:border-accent/50"
+        >
+          Open in new tab
+        </a>
+      </div>
+    </div>
+
+    <div
+      data-animate="fade-up"
+      class="mt-10 overflow-hidden rounded-2xl border border-border bg-surface"
+    >
+      <iframe
+        src={`${pdfHref}#view=FitH`}
+        title="Divide and Conquer Assignment PDF"
+        class="h-[min(85vh,1000px)] w-full bg-bg"
+      />
+    </div>
+
+    <p class="mt-4 text-center text-xs text-muted">
+      If the preview does not load, use Download PDF or Open in new tab.
+    </p>
+
+    <p class="mt-10">
+      <a
+        href={base}
+        class="text-sm text-accent transition-colors hover:text-accent-dim"
+      >
+        &larr; Back to home
+      </a>
+    </p>
+  </main>
+  <SiteFooter />
+</Base>

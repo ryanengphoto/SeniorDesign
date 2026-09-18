@@ -2,7 +2,14 @@
 import Base from "../layouts/Base.astro";
 import Nav from "../components/Nav.astro";
 import Hero from "../components/Hero.astro";
-import blockDiagram from "../../../Docs/BlockDiagrams/Rendered/bd1.jpg";
+import SiteFooter from "../components/SiteFooter.astro";
+
+// Block diagrams — kept for later; not shown on the public site yet.
+/*
+import pcbDiagram from "../../../Docs/BlockDiagrams/Rendered/pcb_bd_1.jpg";
+import fabricDiagram from "../../../Docs/BlockDiagrams/Rendered/fabric_bd.jpg";
+import softwareDiagram from "../../../Docs/BlockDiagrams/Rendered/software.jpg";
+*/
 
 const securityFeatures = [
   {
@@ -44,15 +51,37 @@ const securityFeatures = [
 ];
 
 const specs = [
-  "2-to-1 USB hub minimum; 4-to-1 target configuration",
+  "4-to-1 USB 2.0 hub with independent downstream ports",
   "5V delivery per port from host, with optional external power",
   "240V surge withstand (500V advanced target)",
   "Isolation without disabling unaffected ports",
   "MCU data monitoring output for analysis and logging",
 ];
+
+/*
+const diagrams = [
+  {
+    image: pcbDiagram,
+    title: "Board architecture",
+    caption: "Carrier PCB — ports, protection, hub, FPGA, and MCU paths",
+  },
+  {
+    image: fabricDiagram,
+    title: "FPGA fabric",
+    caption: "Inspection and isolation logic in the security fabric",
+  },
+  {
+    image: softwareDiagram,
+    title: "Software stack",
+    caption: "MCU management plane and host-side operator software",
+  },
+];
+*/
+
+const base = import.meta.env.BASE_URL;
 ---
 
-<Base title="Secure USB Hub | Senior Design">
+<Base title="USB Peripheral Interface Security System">
   <Nav />
   <main>
     <Hero />
@@ -129,13 +158,14 @@ const specs = [
       </div>
     </section>
 
+    {/* Architecture / block diagrams — hidden for now (restore when ready)
     <section id="architecture" class="mx-auto max-w-6xl px-6 py-24">
       <div data-animate="fade-up">
         <p class="font-mono text-sm tracking-widest text-accent uppercase">
           Architecture
         </p>
         <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-          System block diagram
+          System block diagrams
         </h2>
         <p class="mt-4 max-w-2xl text-muted">
           Host, hub controller, FPGA, and MCU work together to monitor, isolate,
@@ -143,38 +173,70 @@ const specs = [
         </p>
       </div>
 
-      <figure
-        data-animate="scale-in"
-        class="mt-12 overflow-hidden rounded-2xl border border-border bg-surface-raised p-2"
-      >
-        <img
-          src={blockDiagram.src}
-          width={blockDiagram.width}
-          height={blockDiagram.height}
-          alt="System block diagram showing USB inputs, protection circuitry, FPGA, and MCU"
-          class="w-full rounded-xl"
-          loading="lazy"
-        />
-        <figcaption class="px-4 py-3 text-center text-sm text-muted">
-          Block diagram — USB hub with hardware security layer
-        </figcaption>
-      </figure>
+      <div class="mt-12 space-y-10">
+        {
+          diagrams.map(({ image, title, caption }) => (
+            <figure
+              data-animate="scale-in"
+              class="overflow-hidden rounded-2xl border border-border bg-surface-raised p-2"
+            >
+              <img
+                src={image.src}
+                width={image.width}
+                height={image.height}
+                alt={caption}
+                class="w-full rounded-xl"
+                loading="lazy"
+              />
+              <figcaption class="px-4 py-3 text-center text-sm text-muted">
+                <span class="font-medium text-text">{title}</span>
+                <span class="mx-2 text-border">·</span>
+                {caption}
+              </figcaption>
+            </figure>
+          ))
+        }
+      </div>
+    </section>
+    */}
+
+    <section id="documents" class="border-t border-border bg-surface/50 py-24">
+      <div class="mx-auto max-w-6xl px-6">
+        <div data-animate="fade-up">
+          <p class="font-mono text-sm tracking-widest text-accent uppercase">
+            Documents
+          </p>
+          <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+            Project materials
+          </h2>
+          <p class="mt-4 max-w-2xl text-muted">
+            Course deliverables for Group 19 — USB Peripheral Interface Security
+            System.
+          </p>
+        </div>
+
+        <a
+          data-animate="fade-up"
+          href={`${base}documents/`}
+          class="mt-12 flex flex-col gap-3 rounded-xl border border-border bg-surface p-6 transition-colors hover:border-accent/40 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <h3 class="text-lg font-semibold">
+              Divide and Conquer Assignment
+            </h3>
+            <p class="mt-1 text-sm leading-relaxed text-muted">
+              Project proposal (SD1) — view on site or download the PDF.
+            </p>
+          </div>
+          <span
+            class="shrink-0 rounded-lg border border-border px-4 py-2 text-sm font-medium text-accent"
+          >
+            View document &rarr;
+          </span>
+        </a>
+      </div>
     </section>
   </main>
 
-  <footer class="border-t border-border py-10">
-    <div
-      class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 sm:flex-row"
-    >
-      <p class="font-mono text-sm text-muted">
-        Senior Design &middot; Hardware-secure USB hub
-      </p>
-      <a
-        href="/team"
-        class="text-sm text-accent transition-colors hover:text-accent-dim"
-      >
-        Meet the team &rarr;
-      </a>
-    </div>
-  </footer>
+  <SiteFooter />
 </Base>

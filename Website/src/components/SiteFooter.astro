@@ -1,0 +1,49 @@
+---
+const base = import.meta.env.BASE_URL;
+---
+
+<footer class="border-t border-border py-10">
+  <div
+    class="mx-auto flex max-w-6xl flex-col gap-4 px-6 sm:flex-row sm:items-start sm:justify-between"
+  >
+    <div class="space-y-2">
+      <p class="font-mono text-sm text-muted">
+        Group 19 &middot; USB Peripheral Interface Security System
+      </p>
+      <p class="max-w-xl text-xs leading-relaxed text-muted/80">
+        Disclaimer: This website—including its structure, layout, and on-page
+        writing—was generated with{" "}
+        <a
+          href="https://cursor.com"
+          class="text-accent/90 underline-offset-2 hover:underline"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Cursor
+        </a>{" "}
+        using AI coding agents. All content is derived from human-written project
+        documentation; the team reviewed the result before publishing.
+      </p>
+    </div>
+    <div class="flex shrink-0 gap-4 text-sm">
+      <a
+        href={`${base}documents/`}
+        class="text-accent transition-colors hover:text-accent-dim"
+      >
+        Documents
+      </a>
+      <a
+        href={`${base}team/`}
+        class="text-accent transition-colors hover:text-accent-dim"
+      >
+        Team
+      </a>
+      <a
+        href={`${base}faculty/`}
+        class="text-accent transition-colors hover:text-accent-dim"
+      >
+        Faculty
+      </a>
+    </div>
+  </div>
+</footer>

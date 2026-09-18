@@ -1,25 +1,30 @@
 ---
 import Base from "../layouts/Base.astro";
 import Nav from "../components/Nav.astro";
+import SiteFooter from "../components/SiteFooter.astro";
 
+// From D_and_C_SD1_v2.pdf cover page
 const members = [
-  { name: "Team Member 1", role: "Hardware / PCB" },
-  { name: "Team Member 2", role: "FPGA / Firmware" },
-  { name: "Team Member 3", role: "MCU / Software" },
-  { name: "Team Member 4", role: "Integration / Testing" },
+  { name: "Ryan Eng", program: "Computer Engineering (CpE)" },
+  { name: "Kyle Kosuda", program: "Electrical Engineering (EE)" },
+  { name: "Victor Valentin", program: "Computer Engineering (CpE)" },
+  { name: "Lukas Zavaleta", program: "Computer Engineering (CpE)" },
 ];
 
-const advisors = [
-  "Dr. Mike",
-  "Dr. Fan Yao",
-  "Dr. Ianello",
-  "Dr. Mingjie Lin",
-];
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
+const base = import.meta.env.BASE_URL;
 ---
 
 <Base
-  title="Team | Secure USB Hub"
-  description="Senior Design team and faculty advisors."
+  title="Team | USB Peripheral Interface Security System"
+  description="Group 19 team members — USB Peripheral Interface Security System."
 >
   <Nav />
   <main class="mx-auto max-w-6xl px-6 pt-32 pb-24">
@@ -27,10 +32,10 @@ const advisors = [
       <p class="font-mono text-sm tracking-widest text-accent uppercase">
         Team
       </p>
-      <h1 class="mt-3 text-4xl font-bold tracking-tight">The people behind it</h1>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight">Group 19</h1>
       <p class="mt-4 max-w-2xl text-muted">
-        Replace the placeholders below with your actual team names, photos, and
-        roles.
+        Fall 2026 / Spring 2027 ECE Senior Design — University of Central
+        Florida. Authors of the USB Peripheral Interface Security System.
       </p>
     </div>
 
@@ -39,44 +44,41 @@ const advisors = [
       class="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4"
     >
       {
-        members.map(({ name, role }) => (
+        members.map(({ name, program }) => (
           <article
             data-stagger-item
             class="rounded-xl border border-border bg-surface p-6 text-center transition-colors hover:border-accent/30"
           >
-            <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-raised font-mono text-xl text-accent">
-              ?
+            <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-raised font-mono text-lg text-accent">
+              {initials(name)}
             </div>
             <h2 class="font-semibold">{name}</h2>
-            <p class="mt-1 text-sm text-muted">{role}</p>
+            <p class="mt-1 text-sm text-muted">{program}</p>
           </article>
         ))
       }
     </div>
 
+    {/* Faculty moved to /faculty — keep a link instead of duplicating
     <section class="mt-20" data-animate="fade-up">
-      <p class="font-mono text-sm tracking-widest text-accent uppercase">
-        Advisors
-      </p>
-      <h2 class="mt-3 text-2xl font-bold">Faculty committee</h2>
-      <ul class="mt-6 flex flex-wrap gap-3">
-        {
-          advisors.map((name) => (
-            <li class="rounded-full border border-border px-4 py-2 text-sm text-muted">
-              {name}
-            </li>
-          ))
-        }
-      </ul>
+      ...
     </section>
+    */}
 
-    <p class="mt-16">
+    <p class="mt-16 flex flex-wrap gap-4 text-sm">
       <a
-        href="/"
-        class="text-sm text-accent transition-colors hover:text-accent-dim"
+        href={base}
+        class="text-accent transition-colors hover:text-accent-dim"
       >
         &larr; Back to home
       </a>
+      <a
+        href={`${base}faculty/`}
+        class="text-accent transition-colors hover:text-accent-dim"
+      >
+        Faculty &amp; review committee &rarr;
+      </a>
     </p>
   </main>
+  <SiteFooter />
 </Base>
