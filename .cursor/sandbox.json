@@ -1,0 +1,9 @@
+{
+  "networkPolicy": {
+    "default": "allow",
+    "allow": [
+      "maverick.eecs.ucf.edu",
+      "*.eecs.ucf.edu"
+    ]
+  }
+}

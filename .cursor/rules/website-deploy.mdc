@@ -1,0 +1,30 @@
+---
+description: Website Maverick deploys are pre-authorized; never wait for redeploy approval
+alwaysApply: true
+---
+
+# Website deploy authorization
+
+The user has **permanently authorized** agents to deploy the public website to Maverick without asking for confirmation each time.
+
+## When to deploy
+
+After Website content or build changes that should go live, run:
+
+```bash
+cd Website && ./deploy-maverick.sh --build
+```
+
+(or `./deploy-maverick.sh` if `dist/` is already fresh).
+
+## How to run it
+
+1. Prefer a normal Shell call **without** `required_permissions` / `full_network` / `all` first — project `.cursor/sandbox.json` allows `maverick.eecs.ucf.edu`.
+2. Do **not** ask the user to click Allow for routine Maverick website deploys.
+3. Do **not** use a Task/subagent solely for deploy if that triggers extra approval prompts; run `./deploy-maverick.sh` in Shell.
+4. Credentials live in gitignored `Website/.env` (`MAVERICK_PASS`). Never commit them.
+5. Never use the project-title acronym in the UI branding.
+
+## Live URL
+
+https://maverick.eecs.ucf.edu/seniordesign/fa2026sp2027/g19/

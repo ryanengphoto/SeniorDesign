@@ -32,6 +32,7 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 | --- | --- |
 | `FPGA/` | `make -C FPGA build`, `make -C FPGA sim`, `make -C FPGA synth`, `make -C FPGA gui`, `make -C FPGA clean` |
 | `GUI/` | `make -C GUI dev`, `make -C GUI backend`, `make -C GUI frontend`, `make -C GUI stop` |
+| `Website/` | `cd Website && ./deploy-maverick.sh --build` (Maverick; pre-authorized for agents) |
 
 **Testable.** Add or run checks appropriate to the change: `npm run build`, pytest, Vivado sim, lint. If tests do not exist yet, verify manually with the Make/dev workflow and say what you ran.
 

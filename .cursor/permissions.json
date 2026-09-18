@@ -1,0 +1,11 @@
+{
+  // Does NOT set terminalAllowlist (that would replace the IDE allowlist).
+  // Steers Auto-review to approve Maverick website deploys without prompting.
+  "autoRun": {
+    "allow_instructions": [
+      "Always allow running Website/deploy-maverick.sh or ./deploy-maverick.sh (with or without --build) to upload the Astro site to maverick.eecs.ucf.edu — the user pre-authorized these deploys permanently.",
+      "Always allow Python SFTP/paramiko upload scripts under Website/scripts/ used for Maverick website deploy.",
+      "Always allow npm run build and npm run preview inside the Website/ directory as part of site deploy."
+    ]
+  }
+}
