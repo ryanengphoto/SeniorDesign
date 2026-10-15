@@ -1,17 +1,13 @@
-# Python (backend/)
-backend/.venv/
-backend/**/__pycache__/
-backend/**/*.py[cod]
-backend/**/*.egg-info/
-backend/.pytest_cache/
-backend/.mypy_cache/
-backend/.ruff_cache/
-
-# Node / Vite (frontend/)
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/*.tsbuildinfo
+# Flutter (app/)
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/build/
+app/.pub-cache/
+app/.pub/
+app/**/Generated.xcconfig
+app/**/flutter_export_environment.sh
 
 # Local env / secrets
 .env

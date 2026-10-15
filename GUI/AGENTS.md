@@ -1,6 +1,6 @@
 # GUI — Agent notes
 
-Operator console (`backend/` FastAPI + `frontend/` React). Distinct from the marketing site in `Website/`.
+Operator console: Flutter app in `app/`. Distinct from the marketing site in `Website/`.
 
 ## Protocol / hardware context
 
@@ -11,21 +11,42 @@ Before changing telemetry shapes, threat codes, or “live hardware” claims, r
 - [`Docs/d_c_txt.md`](../Docs/d_c_txt.md) — system architecture (FPGA sniff + MCU management plane)
 - Prototype honesty: [`GUI/state.md`](state.md)
 
-Keep `GUI/backend/src/protocol.py` aligned with those docs.
+Keep `GUI/app/lib/protocol.dart` aligned with those docs (host↔MCU SoT for the Flutter console).
 
 ## Development
 
-Run Make targets from `GUI/` (or `make -C GUI <target>` from the repo root). **Do not** substitute absolute home-directory paths.
+Run Make targets from `GUI/` (or `make -C GUI <target>` from the repo root). **Do not** substitute absolute home-directory paths (except Flutter’s default `~/flutter` install).
 
 | Target | Action |
 | --- | --- |
-| `make dev` | Install deps, start backend, wait for health, then frontend |
-| `make backend` | API only — http://localhost:8000 |
-| `make frontend` | Dashboard only — requires backend already running |
-| `make install` | Dependencies only |
-| `make build` | `frontend/dist/` production build |
-| `make stop` | Free ports 8000 and 5173 |
+| `make dev` | Install deps, start Flutter web-server mock console (Linux/WSL prototype) |
+| `make web` | Same as `make dev` |
+| `make linux` | Build+run native Linux desktop (debug; mock; requires clang/ninja/pkg-config/GTK) |
+| `make linux-serial` | Linux desktop with `HUB_MODE=serial` (set `SERIAL_PORT=...`) |
+| `make sim-pty` | socat PTY pair `/tmp/hub_mcu` ↔ `/tmp/hub_host` |
+| `make sim-mcu` | Run `scripts/mcu_sim.py` timed demo (dummy MCU — **not** PCB) |
+| `make sim-mcu-i` | Interactive `mcu_sim` REPL (`burst 1`, `isolate 2`, …) |
+| `make tier1-check` | Headless PTY + mcu_sim protocol round-trip |
+| `make stop-sim` | Stop background socat / mcu_sim |
+| `make run-linux` | Run an already-built Linux binary (release preferred, else debug) |
+| `make build-web` / `make build` | Release web → `app/build/web/` |
+| `make build-linux` | Release Linux bundle |
+| `make build-windows` / `make windows` | Release Windows `.exe` — **Windows host only** (see `scripts/build_windows.ps1`) |
+| `make install` | `flutter pub get` in `app/` |
+| `make analyze` | `flutter analyze` |
+| `make test` | `flutter test` (protocol + widget + serial Tier-1) |
+| `make test-serial` | SerialDevice ↔ mcu_sim PTY test only |
+| `make stop` | Free port 7357 |
 
-Open the **dashboard** at port 5173. Port 8000 is the API (`/api/health`, WebSocket `/ws`).
+Open the dashboard at http://127.0.0.1:7357 after `make dev`. Flutter SDK is expected at `~/flutter` (override with `FLUTTER=...`).
 
-When starting or debugging the stack, use these Make targets instead of ad-hoc `uvicorn` / `npm run dev` command lines.
+### Hub backends
+
+| Mode | How | Notes |
+| --- | --- | --- |
+| `mock` (default) | in-process `MockDevice` | Web (`make dev`) and `make linux` |
+| `serial` | `SerialDevice` + `flutter_libserialport` | Desktop only; `--dart-define=HUB_MODE=serial --dart-define=SERIAL_PORT=...` |
+
+`scripts/mcu_sim.py` is a **dummy** UART peer for Tier-1 bring-up. Mode badge `SERIAL` against mcu_sim does **not** mean real carrier/FPGA hardware.
+
+Do not claim a Windows build succeeded from WSL; `make windows` exits with instructions on Linux.

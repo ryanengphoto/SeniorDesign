@@ -1,9 +1,9 @@
 # GUI prototype state
 
-**Last updated:** 2026-09-01  
-**Status:** Software-only prototype — dashboard and API are real; all hub data is simulated.
+**Last updated:** 2026-10-15  
+**Status:** Software prototype — Flutter operator console with mock (default), Tier-1 PTY serial, and Tier-2 dual-CP2102 serial (both via `mcu_sim`). Serial against `mcu_sim` is **not** real PCB / MCU / FPGA hardware.
 
-**Run:** `make dev` from `GUI/` → dashboard at http://localhost:5173 (mode badge shows `MOCK`).
+**Run:** `make dev` from `GUI/` → http://127.0.0.1:7357 (mode badge shows `MOCK`).
 
 ---
 
@@ -11,19 +11,21 @@
 
 ### Priority — hardware integration
 
-- [ ] Implement `SerialDevice` in `backend/src/serial_device.py` (USB-CDC/UART, newline-delimited JSON)
-- [ ] MCU firmware speaking the same JSON contract (`Docs/firmwmare_slop.md`)
+- [x] Serial / USB-CDC device layer in Dart (newline-delimited JSON per `Docs/firmwmare_slop.md`) — Tier 1 via PTY + `mcu_sim`
+- [x] **Tier 2:** Dual CP2102 cross-wire + same `mcu_sim` (headless protocol check 2026-10-15; GUI `linux-serial` still optional)
+- [ ] MCU firmware speaking the same JSON contract (Black Pill / carrier)
 - [ ] Wire real telemetry: INA219 `vbus_mv` / `current_ma`, FPGA descriptor fields over SPI
 - [ ] Forward host commands (`isolate_port`, `restore_port`, `clear_fault`) to MCU → FPGA
-- [ ] Verify end-to-end: `HUB_MODE=serial` with hardware on the bench
-- [ ] Production WebSocket URL / reverse-proxy config for non-dev deploy (`useHubSocket.ts`)
+- [ ] Verify end-to-end with hardware on the bench
+- [ ] Package native Linux (`make build-linux`) and Windows (`make build-windows` on a Windows host / `scripts/build_windows.ps1`) for demo day
 
 ### Recommended — quality and demo
 
-- [ ] Add unit or integration tests (protocol parsing, mock commands, WebSocket smoke test)
+- [ ] Expand unit tests beyond protocol + smoke widget test
 - [ ] Human-readable USB class names in port cards (hex only today)
-- [ ] Expand mock or serial path to surface threat codes 1, 3–6 (only 2 and 7 demoed today)
-- [ ] Persistent event log export (file/DB)
+- [ ] Expand mock / mcu_sim to surface threat codes 1, 3–6 (only 2 and 7 demoed today)
+- [x] Persistent event log (Drift / SQLite) — last 200, wall-clock `YYYY-MM-DD HH:MM:SS`
+- [ ] Install system deps for `make linux` (`clang ninja-build pkg-config libgtk-3-dev`)
 
 ### Deferred (out of current v1 scope)
 
@@ -34,6 +36,7 @@
 - [ ] Global system status UI (FPGA reset, external 5 V, hub power mode)
 - [ ] Settings page
 - [ ] Link from `Website/` to operator console (if desired publicly)
+- [ ] Revive legacy FastAPI `GUI/backend/` (not planned — Dart SoT)
 
 ---
 
@@ -41,13 +44,17 @@
 
 | Layer | Status |
 | --- | --- |
-| Operator dashboard (React) | **Built** — single-page console |
-| Host backend (FastAPI + WebSocket) | **Built** — bridges UI to device layer |
-| JSON host↔MCU protocol | **Defined** — models in `backend/src/protocol.py` |
-| Mock hub simulator | **Built** — default data source |
-| Real MCU / serial integration | **Not built** — stub only |
+| Operator dashboard (Flutter) | **Built** — single-page console |
+| In-process mock hub | **Built** — default (`HUB_MODE=mock`) |
+| Serial UART backend | **Built** — `SerialDevice` + `flutter_libserialport` (desktop only) |
+| Dummy MCU peer (`mcu_sim.py`) | **Built** — Tier-1 / Tier-2 test peer; **not** hardware |
+| JSON host↔MCU protocol (Dart) | **Built** — `app/lib/protocol.dart` (+ unit tests) |
+| Real MCU / carrier integration | **Not built** |
+| Native Linux desktop launch | **Scaffolded** — needs system GTK/clang toolchain |
+| Windows `.exe` packaging | **Scaffolded** — `app/windows/` + `make build-windows` / `scripts/build_windows.ps1` (build on Windows only) |
 | Policy editor, scenario replay | **Not built** — out of v1 scope |
-| Automated tests | **Not built** |
+| Event log persistence | **Built** — Drift SQLite, last 200 events, reload on start |
+| Automated tests | Protocol + persist + widget + serial Tier-1 + `make tier1-check` |
 
 ---
 
@@ -58,24 +65,24 @@
 | Purpose | Public project page for committee / portfolio | Operator console for the device |
 | Audience | Visitors | Team / demo / future operators |
 | Data | Static copy | Live telemetry + commands |
-| Stack | Astro | Vite + React + FastAPI |
+| Stack | Astro | Flutter (`app/`) |
 
 ---
 
 ## Architecture (current)
 
 ```
-Browser (localhost:5173)
-    │  WebSocket /ws  (proxied by Vite in dev)
+Flutter UI (web via make dev, or linux)
+    │
     ▼
-FastAPI backend (localhost:8000)
-    │  HubService
-    ▼
-MockDevice  ←── default (HUB_MODE=mock)
-SerialDevice ←── stub (HUB_MODE=serial, not implemented)
+HubService  ←── HubDevice interface
+    │
+    ├── MockDevice     (default — HUB_MODE=mock)
+    └── SerialDevice   (HUB_MODE=serial, desktop only)
+              │
+              ▼
+         UART / PTY  ←── mcu_sim.py (dummy) or future MCU
 ```
-
-In production intent, `SerialDevice` would read newline-delimited JSON from the STM32 USB-CDC/UART link described in `Docs/firmwmare_slop.md`. The frontend would not change.
 
 ---
 
@@ -85,108 +92,92 @@ These parts are functional prototype code, not placeholders.
 
 ### Tooling
 
-- `Makefile` — `make dev`, `make backend`, `make frontend`, `make install`, `make stop`
-- `GUI/.gitignore` — Python venv, egg-info, `node_modules`, `dist`, etc.
-- `GUI/README.md`, `GUI/AGENTS.md` — run instructions and agent conventions
+- `Makefile` — `make dev`, `make linux`, `make linux-serial`, `make sim-pty`, `make sim-mcu`, `make tier1-check`, `make analyze`, `make test`, …
+- `scripts/run_web.sh`, `scripts/mcu_sim.py`, `scripts/tier1_pty_check.py`
+- `GUI/.gitignore`, `GUI/README.md`, `GUI/AGENTS.md`
 
-### Backend (`backend/`)
-
-| Component | File | Notes |
-| --- | --- | --- |
-| HTTP health | `src/main.py` | `GET /api/health` → `{"status":"ok","mode":"mock"}` |
-| WebSocket API | `src/main.py` | `WS /ws` — snapshot on connect, telemetry @ 10 Hz, command handling |
-| Protocol models | `src/protocol.py` | Pydantic types for telemetry, events, commands, threat codes 0–7 |
-| Hub orchestration | `src/hub_service.py` | Event ring buffer (200), change detection, command routing |
-| CORS | `src/main.py` | Allows `localhost:5173` |
-
-### Frontend (`frontend/`)
+### Flutter app (`app/`)
 
 | Component | File | Notes |
 | --- | --- | --- |
-| Dashboard layout | `src/App.tsx` | Header, 2×2 port grid, event log panel |
-| WebSocket client | `src/hooks/useHubSocket.ts` | Connect, reconnect with backoff, snapshot/telemetry/events |
-| Port cards | `src/components/PortCard.tsx` | State, VID/PID, classes, VBUS, current, actions |
-| Threat display | `src/components/ThreatBadge.tsx` | Shown when `threat_code > 0` |
-| Event log | `src/components/EventLog.tsx` | Scrollable log, pause-on-hover |
-| Connection banner | `src/components/ConnectionBanner.tsx` | Connected dot + mode badge |
-| Types | `src/types/protocol.ts` | Mirrors backend protocol |
-| Styling | `src/styles/global.css` | Dark theme aligned with `Website/` palette |
-| Dev proxy | `vite.config.ts` | Proxies `/api` and `/ws` to port 8000 |
-| Production build | `npm run build` | Outputs `frontend/dist/` |
+| Entry | `lib/main.dart` | `HubService.fromEnvironment()` |
+| Device interface | `lib/hub_device.dart` | Shared mock/serial API |
+| Factory | `lib/device_factory*.dart` | dart-defines + web stub |
+| Protocol models | `lib/protocol.dart` | fromJson/toJson, HostCommand |
+| Mock hub | `lib/mock_device.dart` | Scripted demo + jitter |
+| Serial hub | `lib/serial_device.dart` | flutter_libserialport @ 115200 8-N-1 |
+| Hub orchestration | `lib/hub_service.dart` | Poll (mock) or frame stream (serial); loads/saves event log |
+| Event log DB | `lib/db/event_log_*.dart` | Drift SQLite — last 200, wall-clock timestamps |
+| Dashboard / widgets | `lib/dashboard_page.dart`, `lib/widgets/*` | Mode badge SERIAL / SERIAL_ERROR + port path |
 
 ### Protocol (host ↔ device contract)
 
-Defined in code and used end-to-end in mock mode:
+**MCU → host:** newline-delimited telemetry JSON (`timestamp_ms`, `ports[]`)
 
-**MCU → host:** `telemetry`, `event`, `snapshot` (backend extension for UI on connect)
-
-**Host → MCU:** `isolate_port`, `restore_port`, `clear_fault`
+**Host → MCU:** `{"type":"command","cmd":"isolate_port"|"restore_port"|"clear_fault","port":0-3}\n`
 
 **Enums:** port states (`DISCONNECTED` … `MANUAL_BLOCKED`); threat codes 0–7 per `Docs/fabric_slop.md` §6
+
+SoT: `GUI/app/lib/protocol.dart` (see also `Docs/firmwmare_slop.md` §4).
 
 ---
 
 ## Dummy / simulated (not real hardware)
 
-Everything below is **in-memory fiction** when `HUB_MODE=mock` (the default).
-
-### MockDevice (`backend/src/mock_device.py`)
-
-| Behavior | How it is faked |
+| Source | What is fake |
 | --- | --- |
-| Port 0 at startup | Hard-coded SanDisk-like flash drive (`0x0781:0x5583`, storage class `0x08`, ~5 V, ~42 mA) |
-| Ports 2–3 | Disconnected, zero readings |
-| Port 1 demo script | Timed sequence: ~5 s enumerate → ~8 s keyboard → ~15 s `KEYSTROKE_BURST` quarantine |
+| `MockDevice` | Entire hub — in-process Dart only |
+| `mcu_sim.py` | Entire MCU — scripted UART peer; **SERIAL badge does not mean PCB** |
+| Port 0 at startup | Hard-coded SanDisk-like flash (`0x0781:0x5583`) |
+| Port 1 demo script | Timed enumerate → keyboard → `KEYSTROKE_BURST` |
 | Current readings | Random ±3 mA jitter on powered ports |
-| Timestamps | `time.monotonic()` since mock start, not MCU timer |
-| Isolate / Restore / Clear | Updates Python dataclass only — no GPIO, eFuse, or MUX |
-| VID/PID on restore | Always sets Logitech keyboard IDs (not prior device) |
+| Isolate / Restore / Clear (mock/sim) | Local state only — no GPIO / eFuse / MUX / FPGA |
 
-### What the UI implies but is not true yet
+### What the UI implies but is not true yet (mock or mcu_sim)
 
-- “Live telemetry from the hub management plane” — live from the **mock**, not the PCB
+- “Live telemetry from the hub management plane” — live from **mock** or **mcu_sim**, not the PCB
 - VBUS/current — plausible numbers, not INA219 readings
 - Threat detection — only port 1 scripted `KEYSTROKE_BURST`; other codes exist in enum but are not triggered
 
 ---
 
-## Stubs and placeholders
+## Tier-1 verification
 
-| Item | Location | Status |
-| --- | --- | --- |
-| Serial/MCU backend | `backend/src/serial_device.py` | `start()` raises `NotImplementedError` |
-| Serial command path | `hub_service.py` | Raises if device is `SerialDevice` |
-| `HUB_MODE=serial` | env var | Selects stub; does not work |
-| `SERIAL_PORT` | env var | Default `/dev/ttyACM0`; unused |
-| Frontend empty state | `App.tsx` `EMPTY_PORTS` | Zeros until first WebSocket snapshot |
-| Production WebSocket URL | `useHubSocket.ts` | Hard-coded when not in Vite dev |
+```bash
+make -C GUI analyze          # clean
+make -C GUI test             # protocol + widget
+make -C GUI tier1-check      # socat + mcu_sim + host cmds
+# Manual GUI:
+make -C GUI sim-pty
+make -C GUI sim-mcu          # other terminal
+make -C GUI linux-serial SERIAL_PORT=/tmp/hub_host
+```
 
----
+- [x] `make analyze` clean
+- [x] Protocol unit tests + `serial_tier1_test` (SerialDevice ↔ mcu_sim over PTY)
+- [x] `make tier1-check` (Python host ↔ mcu_sim over PTY)
+- [ ] Manual GUI: `make linux-serial SERIAL_PORT=/tmp/hub_host` with `sim-pty` + `sim-mcu`
+- [x] Default mock unchanged (`make dev` / `make linux`)
 
-## Threat code coverage
-
-| Code | Name | In mock demo? | In UI? |
-| --- | --- | --- | --- |
-| 0 | `NO_FAULT` | Yes | Yes |
-| 1 | `UNAUTHORIZED_HID` | No | Yes (badge if set) |
-| 2 | `KEYSTROKE_BURST` | Yes (port 1 @ ~15 s) | Yes |
-| 3 | `COOLDOWN_BURST` | No | Yes (badge if set) |
-| 4 | `DESCRIPTOR_OVERFLOW` | No | Yes (badge if set) |
-| 5 | `CRC_TOKEN_FAULT` | No | Yes (badge if set) |
-| 6 | `BIT_STUFF_ERROR` | No | Yes (badge if set) |
-| 7 | `MANUAL_HOST_KILL` | Yes (Isolate button) | Yes |
+**Honesty:** Mode badge `SERIAL` against `mcu_sim` / PTY is a **dummy UART peer**, not the carrier PCB, Black Pill, or FPGA.
 
 ---
 
-## Verification (manual)
+## Tier-2 checklist (FTDI / CP2102)
 
-- [x] `make dev` starts backend then frontend
-- [x] Dashboard at :5173 shows 4 ports and `MOCK` badge
-- [x] Event log fills during port 1 demo and on manual isolate
-- [x] Isolate / Restore / Clear change port display
-- [x] `npm run build` succeeds
-- [ ] `HUB_MODE=serial` with real MCU
-- [ ] End-to-end with FPGA + hub hardware
+Same `mcu_sim`, real USB–serial silicon (not PCB). Verified 2026-10-15 on dual CP2102 via WSL `usbipd`:
+
+1. [x] Two CP2102 modules; USB-powered; TX↔RX + GND↔GND (no VCC cross)
+2. [x] Both appear as `/dev/ttyUSB0` + `/dev/ttyUSB1` (after Windows VCP driver + `usbipd attach`)
+3. [x] Headless: `python3 scripts/tier1_pty_check.py --mcu-port /dev/ttyUSB0 --host-port /dev/ttyUSB1`
+   - telemetry port 0 `AUTHORIZED`
+   - `isolate_port` → `MANUAL_BLOCKED` / threat 7
+   - `clear_fault` → threat 0, still isolated
+   - `restore_port` → `AUTHORIZED`
+4. [ ] Optional GUI: `make linux-serial SERIAL_PORT=/dev/ttyUSB1` with `mcu_sim` on the other port
+5. [x] User in `dialout` (new shells may need re-login / `newgrp dialout`)
+
+Single dongle: open-port smoke / TX–RX loopback only — prefer Tier-1 PTY or dual-dongle for protocol.
 
 ---
 
@@ -204,4 +195,4 @@ Everything below is **in-memory fiction** when `HUB_MODE=mock` (the default).
 
 ## Maintenance
 
-Update **Next steps** and checkboxes when work lands. Also update when mock behavior or integration status changes.
+Update **Next steps** and checkboxes when work lands. Also update when mock / mcu_sim behavior or integration status changes. Never imply real hardware when the peer is `mcu_sim`.

@@ -1,0 +1,9 @@
+import 'hub_device.dart';
+
+/// Web: serial is unsupported (no UART / libserialport).
+HubDevice createSerialDeviceFromEnvironment() {
+  throw UnsupportedError(
+    'HUB_MODE=serial is not supported on Flutter web. '
+    'Use `make linux-serial` (native desktop) with a PTY or USB-UART port.',
+  );
+}
