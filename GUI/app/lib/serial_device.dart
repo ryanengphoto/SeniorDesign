@@ -18,12 +18,26 @@ import 'protocol.dart';
 /// Not available on Flutter web.
 class SerialDevice implements HubDevice {
   SerialDevice({
-    required this.portPath,
+    required String portPath,
     this.baudRate = 115200,
-  });
+  }) : portPath = normalizePortPath(portPath);
 
   final String portPath;
   final int baudRate;
+
+  /// Windows COM10+ needs `\\.\COMn`; Linux/WSL paths pass through.
+  static String normalizePortPath(String path) {
+    final trimmed = path.trim();
+    final match = RegExp(r'^COM(\d+)$', caseSensitive: false).firstMatch(trimmed);
+    if (match == null) {
+      return trimmed;
+    }
+    final n = int.parse(match.group(1)!);
+    if (n >= 10) {
+      return '\\\\.\\COM$n';
+    }
+    return 'COM$n';
+  }
 
   SerialPort? _port;
   // Retained so the native reader is not GC'd while the subscription is live.
@@ -279,9 +293,15 @@ class SerialDevice implements HubDevice {
 
     final port = _port;
     if (port != null && port.isOpen) {
-      final written = port.write(bytes);
-      if (written != bytes.length) {
-        _fail('Short write on $portPath ($written/${bytes.length})');
+      try {
+        final written = port.write(bytes);
+        if (written != bytes.length) {
+          _fail('Short write on $portPath ($written/${bytes.length})');
+        }
+      } on Object catch (e) {
+        // Common when the peer closes, USB unplugs, or usbipd detaches:
+        // SerialPortError Input/output error (errno 5).
+        _fail('Serial write error: $e');
       }
       return;
     }

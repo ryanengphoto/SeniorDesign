@@ -9,16 +9,16 @@ Modes:
   (default) Timed demo like MockDevice (port 1 → burst ~15s)
   --interactive / -i   REPL: you trigger plug/enum/burst/isolate yourself
 
-Usage:
-  # Terminal A — PTY pair
-  make -C GUI sim-pty
+Usage (pick ONE host path — both stay supported):
 
-  # Terminal B — interactive sim (MCU side)
-  make -C GUI sim-mcu-i
-  # or: python3 GUI/scripts/mcu_sim.py --port /tmp/hub_mcu -i
+  WSL / Linux (PTY or /dev/ttyUSB*):
+    make -C GUI sim-pty
+    make -C GUI sim-mcu-i
+    make -C GUI linux-serial SERIAL_PORT=/tmp/hub_host
 
-  # Terminal C — Flutter (host side)
-  make -C GUI linux-serial SERIAL_PORT=/tmp/hub_host
+  Windows native (COM ports — no usbipd):
+    python scripts\\mcu_sim.py --port COM3 -i
+    .\\scripts\\run_windows_serial.ps1 -Port COM4
 
 In the REPL, type `help`. GUI Isolate/Restore/Clear still work over UART.
 

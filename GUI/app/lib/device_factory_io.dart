@@ -8,7 +8,7 @@ HubDevice createSerialDeviceFromEnvironment() {
   if (port.isEmpty) {
     throw StateError(
       'HUB_MODE=serial requires --dart-define=SERIAL_PORT=... '
-      '(e.g. /tmp/hub_host or /dev/ttyUSB0)',
+      '(e.g. /tmp/hub_host, /dev/ttyUSB0, or COM3 on Windows)',
     );
   }
   return SerialDevice(portPath: port, baudRate: baud);

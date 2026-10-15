@@ -53,34 +53,53 @@ make run-linux    # run an already-built Linux binary (release if present, else 
 
 Mode badge shows `MOCK`.
 
-## Tier-1 serial (PTY + dummy MCU)
+## Serial bring-up (dummy MCU) — pick a host path
 
-Exercises `SerialDevice` without Black Pill / FTDI / carrier PCB. **`SERIAL` + mcu_sim is still not real hardware.**
+Both paths stay supported. **`SERIAL` + `mcu_sim` is still not PCB / STM32.**
+
+| Host | When to use | GUI | Peer |
+| --- | --- | --- | --- |
+| **Windows native** | CP2102s plug into Windows; no `usbipd` | `.\scripts\run_windows_serial.ps1 -Port COMx` | `python scripts\mcu_sim.py --port COMy -i` |
+| **WSL / Linux** | PTY smoke test, or dongles attached into WSL | `make linux-serial SERIAL_PORT=…` | `make sim-mcu-i` or `mcu_sim.py --port /dev/ttyUSB0 -i` |
+
+### Windows native (recommended for dual CP2102)
+
+Needs Flutter for Windows + VS Desktop C++ workload, CP210x VCP drivers, `pip install pyserial`.
+
+```powershell
+cd GUI
+.\scripts\list_com_ports.ps1
+
+# Terminal A — MCU side (one COM)
+python scripts\mcu_sim.py --port COM3 -i
+
+# Terminal B — GUI (the other COM)
+.\scripts\run_windows_serial.ps1 -Port COM4
+```
+
+Mock on Windows (no serial): `.\scripts\run_windows_mock.ps1`
+
+### WSL / Linux (PTY or usbipd ttyUSB)
 
 ```bash
 # Terminal A
 make sim-pty
 
-# Terminal B — timed demo, OR interactive (you trigger events):
+# Terminal B — timed demo, OR interactive:
 make sim-mcu          # auto script
 make sim-mcu-i        # REPL: burst 1 / isolate 2 / help
 
 # Terminal C
 make linux-serial SERIAL_PORT=/tmp/hub_host
+# or after usbipd attach: SERIAL_PORT=/dev/ttyUSB1
 ```
 
-In `sim-mcu-i`, useful commands: `burst 1`, `hid 2`, `plug 3`, `unplug 1`, `status`, then use GUI **Isolate / Restore / Clear**. Restart the GUI to confirm the event log reloads from Drift.
+In `sim-mcu-i` / interactive `mcu_sim`, useful commands: `burst 1`, `hid 2`, `plug 3`, `unplug 1`, `status`, then use GUI **Isolate / Restore / Clear**.
 
-Headless protocol check (no GUI):
+Headless PTY check (WSL/Linux, no GUI):
 
 ```bash
 make tier1-check
-```
-
-Equivalent manual socat:
-
-```bash
-socat -d -d PTY,link=/tmp/hub_mcu,raw,echo=0 PTY,link=/tmp/hub_host,raw,echo=0
 ```
 
 ## Release / portable packages

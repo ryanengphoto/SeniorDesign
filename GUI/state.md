@@ -1,7 +1,7 @@
 # GUI prototype state
 
 **Last updated:** 2026-10-15  
-**Status:** Software prototype — Flutter operator console with mock (default), Tier-1 PTY serial, and Tier-2 dual-CP2102 serial (both via `mcu_sim`). Serial against `mcu_sim` is **not** real PCB / MCU / FPGA hardware.
+**Status:** Software prototype — Flutter operator console with mock (default), Tier-1 PTY serial, and Tier-2 dual-CP2102 serial via WSL **or** Windows COM (`mcu_sim`). Serial against `mcu_sim` is **not** real PCB / MCU / FPGA hardware.
 
 **Run:** `make dev` from `GUI/` → http://127.0.0.1:7357 (mode badge shows `MOCK`).
 
@@ -12,7 +12,8 @@
 ### Priority — hardware integration
 
 - [x] Serial / USB-CDC device layer in Dart (newline-delimited JSON per `Docs/firmwmare_slop.md`) — Tier 1 via PTY + `mcu_sim`
-- [x] **Tier 2:** Dual CP2102 cross-wire + same `mcu_sim` (headless protocol check 2026-10-15; GUI `linux-serial` still optional)
+- [x] **Tier 2:** Dual CP2102 cross-wire + same `mcu_sim` (headless on WSL 2026-10-15)
+- [x] **Windows serial host path:** `scripts/run_windows_serial.ps1` + COM ports (keeps WSL `linux-serial` / usbipd path)
 - [ ] MCU firmware speaking the same JSON contract (Black Pill / carrier)
 - [ ] Wire real telemetry: INA219 `vbus_mv` / `current_ma`, FPGA descriptor fields over SPI
 - [ ] Forward host commands (`isolate_port`, `restore_port`, `clear_fault`) to MCU → FPGA
@@ -51,7 +52,7 @@
 | JSON host↔MCU protocol (Dart) | **Built** — `app/lib/protocol.dart` (+ unit tests) |
 | Real MCU / carrier integration | **Not built** |
 | Native Linux desktop launch | **Scaffolded** — needs system GTK/clang toolchain |
-| Windows `.exe` packaging | **Scaffolded** — `app/windows/` + `make build-windows` / `scripts/build_windows.ps1` (build on Windows only) |
+| Windows `.exe` / serial host | **Scaffolded** — `run_windows_serial.ps1` (COM) + `build_windows.ps1` (build on Windows only) |
 | Policy editor, scenario replay | **Not built** — out of v1 scope |
 | Event log persistence | **Built** — Drift SQLite, last 200 events, reload on start |
 | Automated tests | Protocol + persist + widget + serial Tier-1 + `make tier1-check` |
@@ -165,17 +166,22 @@ make -C GUI linux-serial SERIAL_PORT=/tmp/hub_host
 
 ## Tier-2 checklist (FTDI / CP2102)
 
-Same `mcu_sim`, real USB–serial silicon (not PCB). Verified 2026-10-15 on dual CP2102 via WSL `usbipd`:
+Same `mcu_sim`, real USB–serial silicon (not PCB). **Prefer Windows native COM** so plugs stay on Windows; WSL/`usbipd` remains optional.
+
+### Host switch
+
+| Path | GUI | Peer |
+| --- | --- | --- |
+| Windows (default for dongles) | `.\scripts\run_windows_serial.ps1 -Port COMx` | `python scripts\mcu_sim.py --port COMy -i` |
+| WSL / Linux | `make linux-serial SERIAL_PORT=/dev/ttyUSB1` | `mcu_sim.py --port /dev/ttyUSB0 -i` (+ `usbipd attach`) |
+
+### Verified / remaining
 
 1. [x] Two CP2102 modules; USB-powered; TX↔RX + GND↔GND (no VCC cross)
-2. [x] Both appear as `/dev/ttyUSB0` + `/dev/ttyUSB1` (after Windows VCP driver + `usbipd attach`)
-3. [x] Headless: `python3 scripts/tier1_pty_check.py --mcu-port /dev/ttyUSB0 --host-port /dev/ttyUSB1`
-   - telemetry port 0 `AUTHORIZED`
-   - `isolate_port` → `MANUAL_BLOCKED` / threat 7
-   - `clear_fault` → threat 0, still isolated
-   - `restore_port` → `AUTHORIZED`
-4. [ ] Optional GUI: `make linux-serial SERIAL_PORT=/dev/ttyUSB1` with `mcu_sim` on the other port
-5. [x] User in `dialout` (new shells may need re-login / `newgrp dialout`)
+2. [x] WSL headless: `tier1_pty_check.py` over `/dev/ttyUSB0`↔`/dev/ttyUSB1` (2026-10-15)
+3. [x] Windows scripts: `list_com_ports.ps1`, `run_windows_serial.ps1`, `run_windows_mock.ps1`
+4. [ ] Manual GUI on Windows COM (operator) — preferred everyday path
+5. [ ] Optional GUI on WSL after `usbipd attach`
 
 Single dongle: open-port smoke / TX–RX loopback only — prefer Tier-1 PTY or dual-dongle for protocol.
 
