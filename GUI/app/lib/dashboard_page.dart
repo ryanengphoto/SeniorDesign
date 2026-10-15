@@ -112,9 +112,21 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                   ConnectionBanner(
-                    connected: _telemetry != null,
+                    connected: _telemetry != null &&
+                        !widget.hub.mode.toLowerCase().contains('error') &&
+                        !widget.hub.mode
+                            .toLowerCase()
+                            .contains('reconnect'),
                     mode: widget.hub.mode,
                     detail: widget.hub.detail,
+                    errorMessage: widget.hub.errorMessage,
+                    supportsReconnect: widget.hub.supportsReconnect,
+                    onReconnect: widget.hub.supportsReconnect
+                        ? () {
+                            widget.hub.reconnect();
+                            setState(() {});
+                          }
+                        : null,
                   ),
                 ],
               ),
@@ -220,7 +232,9 @@ String _telemetrySubtitle(String mode) {
     case 'serial':
       return 'Live telemetry over UART (peer may be mcu_sim — not the PCB).';
     case 'serial_error':
-      return 'Serial transport error — check port path and peer.';
+      return 'Serial link down — auto-retrying; use Retry or check cable/power.';
+    case 'serial_reconnecting':
+      return 'Reconnecting to UART — waiting for peer / hub power.';
     default:
       return 'Live telemetry from the hub management plane (mock).';
   }

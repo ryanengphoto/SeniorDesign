@@ -41,6 +41,15 @@ class MockDevice implements HubDevice {
   String? get detail => null;
 
   @override
+  String? get errorMessage => null;
+
+  @override
+  bool get supportsReconnect => false;
+
+  @override
+  void reconnect() {}
+
+  @override
   bool get isPolled => true;
 
   @override

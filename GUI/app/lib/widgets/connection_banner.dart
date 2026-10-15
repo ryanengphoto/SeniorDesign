@@ -9,15 +9,33 @@ class ConnectionBanner extends StatelessWidget {
     required this.connected,
     required this.mode,
     this.detail,
+    this.errorMessage,
+    this.supportsReconnect = false,
+    this.onReconnect,
   });
 
   final bool connected;
   final String mode;
   final String? detail;
+  final String? errorMessage;
+  final bool supportsReconnect;
+  final VoidCallback? onReconnect;
 
   @override
   Widget build(BuildContext context) {
-    final isError = mode.toLowerCase().contains('error');
+    final lower = mode.toLowerCase();
+    final isError = lower.contains('error');
+    final isReconnecting = lower.contains('reconnect');
+    final showRetry = supportsReconnect &&
+        onReconnect != null &&
+        (isError || isReconnecting);
+
+    final statusLabel = isReconnecting
+        ? 'Reconnecting…'
+        : (isError
+            ? 'Serial error'
+            : (connected ? 'Connected' : 'Waiting…'));
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -26,28 +44,62 @@ class ConnectionBanner extends StatelessWidget {
           height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isError
+            color: isError || isReconnecting
                 ? HubColors.danger
-                : (connected ? HubColors.ok : HubColors.danger),
+                : (connected ? HubColors.ok : HubColors.muted),
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          isError
-              ? 'Serial error'
-              : (connected ? 'Connected' : 'Reconnecting…'),
-          style: GoogleFonts.ibmPlexSans(
-            fontSize: 14,
-            color: HubColors.muted,
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                statusLabel,
+                style: GoogleFonts.ibmPlexSans(
+                  fontSize: 14,
+                  color: HubColors.muted,
+                ),
+              ),
+              if (detail != null && detail!.isNotEmpty)
+                Text(
+                  detail!,
+                  style: GoogleFonts.ibmPlexMono(
+                    fontSize: 11,
+                    color: HubColors.muted,
+                  ),
+                ),
+              if ((isError || isReconnecting) &&
+                  errorMessage != null &&
+                  errorMessage!.isNotEmpty)
+                Text(
+                  errorMessage!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: GoogleFonts.ibmPlexMono(
+                    fontSize: 10,
+                    color: HubColors.danger,
+                  ),
+                ),
+            ],
           ),
         ),
-        if (detail != null && detail!.isNotEmpty) ...[
-          const SizedBox(width: 10),
-          Text(
-            detail!,
-            style: GoogleFonts.ibmPlexMono(
-              fontSize: 11,
-              color: HubColors.muted,
+        if (showRetry) ...[
+          const SizedBox(width: 12),
+          TextButton(
+            onPressed: onReconnect,
+            style: TextButton.styleFrom(
+              foregroundColor: HubColors.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: Text(
+              'Retry',
+              style: GoogleFonts.ibmPlexSans(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -62,7 +114,9 @@ class ConnectionBanner extends StatelessWidget {
             mode.toUpperCase(),
             style: GoogleFonts.ibmPlexMono(
               fontSize: 11,
-              color: isError ? HubColors.danger : HubColors.accent,
+              color: isError || isReconnecting
+                  ? HubColors.danger
+                  : HubColors.accent,
               letterSpacing: 0.8,
             ),
           ),

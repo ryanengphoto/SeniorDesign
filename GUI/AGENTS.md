@@ -52,6 +52,8 @@ Open the dashboard at http://127.0.0.1:7357 after `make dev`. Flutter SDK is exp
 
 **Host switch:** use WSL/Linux Make targets **or** Windows PowerShell scripts — both stay in tree. Prefer Windows native COM for CP2102 Tier-2 so dongles need no `usbipd`.
 
+**Serial resilience:** `SerialDevice` auto-reconnects with backoff on unplug / I/O errors / silent UART (telemetry watchdog). UI shows **Retry**. Commands must not throw into Flutter gesture handlers.
+
 `scripts/mcu_sim.py` is a **dummy** UART peer for Tier-1/2 bring-up. Mode badge `SERIAL` against mcu_sim does **not** mean real carrier/FPGA hardware.
 
 Do not claim a Windows build succeeded from WSL; `make windows` exits with instructions on Linux.

@@ -7,11 +7,18 @@ import 'protocol.dart';
 /// Mock is poll-style ([isPolled] true + [getTelemetry]).
 /// Serial is stream-style ([isPolled] false + [frames]).
 abstract class HubDevice {
-  /// Mode badge label, e.g. `mock`, `serial`, `serial_error`.
+  /// Mode badge label, e.g. `mock`, `serial`, `serial_error`,
+  /// `serial_reconnecting`.
   String get mode;
 
   /// Optional detail for the UI (serial port path).
   String? get detail => null;
+
+  /// Last transport error, if any (serial only).
+  String? get errorMessage => null;
+
+  /// When true, the UI may offer Retry / the device auto-reconnects.
+  bool get supportsReconnect => false;
 
   /// When true, [HubService] polls [getTelemetry] at 10 Hz.
   bool get isPolled;
@@ -20,6 +27,9 @@ abstract class HubDevice {
   int get elapsedMs;
 
   void start();
+
+  /// Close and reopen the link (serial). No-op for mock.
+  void reconnect() {}
 
   void dispose();
 
@@ -31,7 +41,7 @@ abstract class HubDevice {
   Stream<TelemetryFrame> get frames;
 
   /// Fires when [mode] / connection status changes without a new frame
-  /// (e.g. serial open failure). Default is never.
+  /// (e.g. serial open failure / reconnect). Default is never.
   Stream<void> get statusChanges => Stream<void>.empty();
 
   (PortState, int, String) isolatePort(int portId);

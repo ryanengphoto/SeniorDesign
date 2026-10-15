@@ -44,11 +44,17 @@ class HubService {
   StreamSubscription<TelemetryFrame>? _frameSub;
   StreamSubscription<void>? _statusSub;
   bool _started = false;
+  String _lastMode = '';
 
   String get mode => _device.mode;
 
   /// Serial port path when connected via UART; null for mock.
   String? get detail => _device.detail;
+
+  /// Last serial transport error (null for mock / healthy link).
+  String? get errorMessage => _device.errorMessage;
+
+  bool get supportsReconnect => _device.supportsReconnect;
 
   Stream<TelemetryFrame> get telemetryStream => _telemetryController.stream;
   Stream<List<SecurityEvent>> get eventsStream => _eventsController.stream;
@@ -72,12 +78,14 @@ class HubService {
     _emitEvents();
 
     // Subscribe before start so broadcast UART frames are not dropped.
-    _statusSub = _device.statusChanges.listen((_) => _emitStatusOnly());
+    _lastMode = _device.mode;
+    _statusSub = _device.statusChanges.listen((_) => _onDeviceStatus());
     if (!_device.isPolled) {
       _frameSub = _device.frames.listen(_onSerialFrame);
     }
 
     _device.start();
+    _onDeviceStatus();
 
     if (_device.isPolled) {
       _recordInitialFrom(_device.getTelemetry());
@@ -126,12 +134,80 @@ class HubService {
     }
   }
 
+  /// Force serial reopen (no-op for mock). Safe to call from UI.
+  void reconnect() {
+    if (!_device.supportsReconnect) {
+      return;
+    }
+    try {
+      _device.reconnect();
+    } on Object catch (e) {
+      unawaited(
+        _appendEvent(
+          SecurityEvent(
+            at: DateTime.now(),
+            port: 0,
+            threatCode: ThreatCode.manualHostKill.value,
+            threatName: ThreatCode.nameFor(ThreatCode.manualHostKill.value),
+            state: PortState.disconnected,
+            message: 'Reconnect failed: $e',
+          ),
+        ),
+      );
+    }
+    _onDeviceStatus();
+  }
+
+  void _onDeviceStatus() {
+    final next = _device.mode;
+    if (next != _lastMode) {
+      final prev = _lastMode;
+      _lastMode = next;
+      final String message;
+      if (next == 'serial_reconnecting') {
+        message =
+            'UART link lost — ${_device.errorMessage ?? "reconnecting"}';
+      } else if (next == 'serial_error') {
+        message = 'UART error — ${_device.errorMessage ?? "check cable/power"}';
+      } else if (next == 'serial' &&
+          (prev.contains('error') || prev.contains('reconnect'))) {
+        message = 'UART link restored (${_device.detail ?? "serial"})';
+      } else {
+        message = '';
+      }
+      if (message.isNotEmpty) {
+        unawaited(
+          _appendEvent(
+            SecurityEvent(
+              at: DateTime.now(),
+              port: 0,
+              threatCode: ThreatCode.noFault.value,
+              threatName: ThreatCode.nameFor(ThreatCode.noFault.value),
+              state: PortState.disconnected,
+              message: message,
+            ),
+          ),
+        );
+      }
+    }
+    _emitStatusOnly();
+  }
+
   SecurityEvent? handleCommand(CommandType cmd, int port) {
-    final (PortState, int, String)? result = switch (cmd) {
-      CommandType.isolatePort => _device.isolatePort(port),
-      CommandType.restorePort => _device.restorePort(port),
-      CommandType.clearFault => _device.clearFault(port),
-    };
+    (PortState, int, String)? result;
+    try {
+      result = switch (cmd) {
+        CommandType.isolatePort => _device.isolatePort(port),
+        CommandType.restorePort => _device.restorePort(port),
+        CommandType.clearFault => _device.clearFault(port),
+      };
+    } on Object catch (e) {
+      result = (
+        PortState.disconnected,
+        ThreatCode.manualHostKill.value,
+        'Command failed (link error): $e',
+      );
+    }
 
     if (result == null) {
       return null;
@@ -159,6 +235,10 @@ class HubService {
   void _onSerialFrame(TelemetryFrame frame) {
     if (_lastSnapshot.isEmpty) {
       _recordInitialFrom(frame);
+    }
+    // Frames clear device error flags; sync mode for the banner.
+    if (_lastMode != _device.mode) {
+      _onDeviceStatus();
     }
     _publishFrame(frame);
   }

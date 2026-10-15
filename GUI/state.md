@@ -22,6 +22,7 @@
 
 ### Recommended — quality and demo
 
+- [x] Serial reconnect — auto backoff + Retry; unplug/power-loss must not crash commands
 - [ ] Expand unit tests beyond protocol + smoke widget test
 - [ ] Human-readable USB class names in port cards (hex only today)
 - [ ] Expand mock / mcu_sim to surface threat codes 1, 3–6 (only 2 and 7 demoed today)
@@ -106,7 +107,7 @@ These parts are functional prototype code, not placeholders.
 | Factory | `lib/device_factory*.dart` | dart-defines + web stub |
 | Protocol models | `lib/protocol.dart` | fromJson/toJson, HostCommand |
 | Mock hub | `lib/mock_device.dart` | Scripted demo + jitter |
-| Serial hub | `lib/serial_device.dart` | flutter_libserialport @ 115200 8-N-1 |
+| Serial hub | `lib/serial_device.dart` | flutter_libserialport @ 115200 8-N-1; auto-reconnect + Retry; telemetry watchdog |
 | Hub orchestration | `lib/hub_service.dart` | Poll (mock) or frame stream (serial); loads/saves event log |
 | Event log DB | `lib/db/event_log_*.dart` | Drift SQLite — last 200, wall-clock timestamps |
 | Dashboard / widgets | `lib/dashboard_page.dart`, `lib/widgets/*` | Mode badge SERIAL / SERIAL_ERROR + port path |

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_libserialport/flutter_libserialport.dart';
@@ -15,20 +16,33 @@ import 'protocol.dart';
 /// `dart:io` file I/O when libserialport rejects the path (common for PTY
 /// peers used with `mcu_sim` — still a **dummy** peer, not the carrier PCB).
 ///
+/// Link loss (unplug, peer exit, hub power loss / silent UART) sets
+/// `serial_error` / `serial_reconnecting` and never throws into UI handlers.
+/// Auto-reconnect with backoff; [reconnect] forces an immediate retry.
+///
 /// Not available on Flutter web.
 class SerialDevice implements HubDevice {
   SerialDevice({
     required String portPath,
     this.baudRate = 115200,
+    this.telemetryTimeout = const Duration(seconds: 3),
+    this.initialOpenGrace = const Duration(seconds: 5),
   }) : portPath = normalizePortPath(portPath);
 
   final String portPath;
   final int baudRate;
 
+  /// No valid frame within this window → treat link as dead (hub silent / power).
+  final Duration telemetryTimeout;
+
+  /// After open, wait this long for the first frame before failing.
+  final Duration initialOpenGrace;
+
   /// Windows COM10+ needs `\\.\COMn`; Linux/WSL paths pass through.
   static String normalizePortPath(String path) {
     final trimmed = path.trim();
-    final match = RegExp(r'^COM(\d+)$', caseSensitive: false).firstMatch(trimmed);
+    final match =
+        RegExp(r'^COM(\d+)$', caseSensitive: false).firstMatch(trimmed);
     if (match == null) {
       return trimmed;
     }
@@ -56,15 +70,40 @@ class SerialDevice implements HubDevice {
 
   TelemetryFrame? _latest;
   DateTime _startTime = DateTime.now();
+  DateTime? _lastFrameAt;
+  DateTime? _openedAt;
+
   bool _error = false;
+  bool _reconnecting = false;
+  bool _disposed = false;
   String? _errorMessage;
   bool _usingIoFallback = false;
+  int _reconnectAttempt = 0;
+
+  Timer? _reconnectTimer;
+  Timer? _watchdog;
+
+  static const _backoffCap = Duration(seconds: 10);
 
   @override
-  String get mode => _error ? 'serial_error' : 'serial';
+  String get mode {
+    if (_reconnecting) {
+      return 'serial_reconnecting';
+    }
+    if (_error) {
+      return 'serial_error';
+    }
+    return 'serial';
+  }
 
   @override
   String? get detail => portPath;
+
+  @override
+  String? get errorMessage => _errorMessage;
+
+  @override
+  bool get supportsReconnect => true;
 
   @override
   bool get isPolled => false;
@@ -78,42 +117,72 @@ class SerialDevice implements HubDevice {
   @override
   int get elapsedMs => DateTime.now().difference(_startTime).inMilliseconds;
 
-  /// Last open/read/write failure message, if any.
-  String? get errorMessage => _errorMessage;
-
   /// True when using dart:io PTY/file transport instead of libserialport.
   bool get usingIoFallback => _usingIoFallback;
 
+  bool get _transportOpen =>
+      (_port != null && (_port?.isOpen ?? false)) || _ioWrite != null;
+
   @override
   void start() {
+    if (_disposed) {
+      return;
+    }
     _startTime = DateTime.now();
-    _error = false;
-    _errorMessage = null;
+    _openTransport(resetBackoff: true);
+  }
+
+  @override
+  void reconnect() {
+    if (_disposed) {
+      return;
+    }
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnecting = true;
+    _error = true;
+    _errorMessage = 'Manual reconnect…';
+    _notifyStatus();
+    _closeTransportOnly();
+    _openTransport(resetBackoff: true);
+  }
+
+  void _openTransport({required bool resetBackoff}) {
+    if (_disposed) {
+      return;
+    }
+    if (resetBackoff) {
+      _reconnectAttempt = 0;
+    }
+
+    _closeTransportOnly();
     _lineBuf.clear();
     _usingIoFallback = false;
+    _error = false;
+    _reconnecting = false;
+    _errorMessage = null;
+    _lastFrameAt = null;
+    _openedAt = DateTime.now();
 
-    // PTY /tmp links and /dev/pts often "open" in libserialport but never
-    // deliver reads (termios/get_config). Prefer dart:io for those paths.
     final preferIo = _looksLikePtyPath(portPath);
+    var opened = false;
     if (preferIo) {
-      if (_tryStartIoFallback()) {
-        return;
-      }
-      if (_tryStartLibSerialPort()) {
-        return;
-      }
+      opened = _tryStartIoFallback() || _tryStartLibSerialPort();
     } else {
-      if (_tryStartLibSerialPort()) {
-        return;
-      }
-      if (_tryStartIoFallback()) {
-        return;
-      }
+      opened = _tryStartLibSerialPort() || _tryStartIoFallback();
     }
-    _fail(
-      'Failed to open $portPath via libserialport and dart:io'
-      '${_errorMessage != null ? ": $_errorMessage" : ""}',
-    );
+
+    if (!opened) {
+      _fail(
+        'Failed to open $portPath'
+        '${_errorMessage != null ? ": $_errorMessage" : ""}',
+        scheduleReconnect: true,
+      );
+      return;
+    }
+
+    _startWatchdog();
+    _notifyStatus();
   }
 
   static bool _looksLikePtyPath(String path) {
@@ -122,6 +191,10 @@ class SerialDevice implements HubDevice {
     }
     if (path.startsWith('/tmp/')) {
       return true;
+    }
+    // Windows COM ports are never PTY.
+    if (RegExp(r'^(\\\\\.\\)?COM\d+$', caseSensitive: false).hasMatch(path)) {
+      return false;
     }
     try {
       final type = FileSystemEntity.typeSync(path, followLinks: false);
@@ -142,7 +215,11 @@ class SerialDevice implements HubDevice {
         return false;
       }
     } on Object catch (e) {
-      port?.dispose();
+      try {
+        port?.dispose();
+      } on Object {
+        // ignore
+      }
       _errorMessage = 'libserialport: $e';
       return false;
     }
@@ -167,13 +244,13 @@ class SerialDevice implements HubDevice {
       _onBytes,
       onError: (Object e) => _fail('Serial read error: $e'),
       onDone: () => _fail('Serial port closed'),
+      cancelOnError: false,
     );
     return true;
   }
 
   bool _tryStartIoFallback() {
     try {
-      // Write side (commands). Reader isolate opens its own read fd.
       _ioWrite = File(portPath).openSync(mode: FileMode.writeOnly);
       _ioReceive = ReceivePort();
       _ioSub = _ioReceive!.listen((message) {
@@ -187,6 +264,10 @@ class SerialDevice implements HubDevice {
         _ioReadIsolateMain,
         _IoReadSpawn(portPath, _ioReceive!.sendPort),
       ).then((iso) {
+        if (_disposed || _ioReceive == null) {
+          iso.kill(priority: Isolate.immediate);
+          return;
+        }
         _ioIsolate = iso;
       }).catchError((Object e) {
         _fail('IO isolate spawn failed: $e');
@@ -207,25 +288,52 @@ class SerialDevice implements HubDevice {
     }
   }
 
-  @override
-  void dispose() {
-    _readSub?.cancel();
+  void _closeTransportOnly() {
+    _watchdog?.cancel();
+    _watchdog = null;
+
+    try {
+      _readSub?.cancel();
+    } on Object {
+      // ignore
+    }
     _readSub = null;
     _reader = null;
+
     final port = _port;
     _port = null;
     if (port != null) {
-      if (port.isOpen) {
-        port.close();
+      try {
+        if (port.isOpen) {
+          port.close();
+        }
+      } on Object {
+        // ignore — already torn down after unplug
       }
-      port.dispose();
+      try {
+        port.dispose();
+      } on Object {
+        // ignore
+      }
     }
 
-    _ioSub?.cancel();
+    try {
+      _ioSub?.cancel();
+    } on Object {
+      // ignore
+    }
     _ioSub = null;
-    _ioReceive?.close();
+    try {
+      _ioReceive?.close();
+    } on Object {
+      // ignore
+    }
     _ioReceive = null;
-    _ioIsolate?.kill(priority: Isolate.immediate);
+    try {
+      _ioIsolate?.kill(priority: Isolate.immediate);
+    } on Object {
+      // ignore
+    }
     _ioIsolate = null;
     try {
       _ioWrite?.closeSync();
@@ -233,9 +341,21 @@ class SerialDevice implements HubDevice {
       // ignore
     }
     _ioWrite = null;
+    _usingIoFallback = false;
+  }
 
-    _framesController.close();
-    _statusController.close();
+  @override
+  void dispose() {
+    _disposed = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _closeTransportOnly();
+    if (!_framesController.isClosed) {
+      _framesController.close();
+    }
+    if (!_statusController.isClosed) {
+      _statusController.close();
+    }
   }
 
   @override
@@ -243,7 +363,13 @@ class SerialDevice implements HubDevice {
 
   @override
   (PortState, int, String) isolatePort(int portId) {
-    _writeCommand(CommandType.isolatePort, portId);
+    if (!_writeCommand(CommandType.isolatePort, portId)) {
+      return (
+        PortState.manualBlocked,
+        ThreatCode.manualHostKill.value,
+        'Port $portId isolate not sent — link down',
+      );
+    }
     return (
       PortState.manualBlocked,
       ThreatCode.manualHostKill.value,
@@ -253,7 +379,13 @@ class SerialDevice implements HubDevice {
 
   @override
   (PortState, int, String) restorePort(int portId) {
-    _writeCommand(CommandType.restorePort, portId);
+    if (!_writeCommand(CommandType.restorePort, portId)) {
+      return (
+        PortState.authorized,
+        ThreatCode.noFault.value,
+        'Port $portId restore not sent — link down',
+      );
+    }
     return (
       PortState.authorized,
       ThreatCode.noFault.value,
@@ -276,10 +408,16 @@ class SerialDevice implements HubDevice {
     if (current != null && current.threatCode == ThreatCode.noFault.value) {
       return null;
     }
-    _writeCommand(CommandType.clearFault, portId);
     final previous = current != null
         ? ThreatCode.nameFor(current.threatCode)
         : 'unknown';
+    if (!_writeCommand(CommandType.clearFault, portId)) {
+      return (
+        current?.state ?? PortState.authorized,
+        ThreatCode.noFault.value,
+        'Clear fault not sent for port $portId — link down',
+      );
+    }
     return (
       current?.state ?? PortState.authorized,
       ThreatCode.noFault.value,
@@ -287,7 +425,12 @@ class SerialDevice implements HubDevice {
     );
   }
 
-  void _writeCommand(CommandType cmd, int portId) {
+  /// Returns false if the link is down or the write failed (never throws).
+  bool _writeCommand(CommandType cmd, int portId) {
+    if (_disposed || _error || !_transportOpen) {
+      return false;
+    }
+
     final line = HostCommand(cmd: cmd, port: portId).toWireLine();
     final bytes = Uint8List.fromList(utf8.encode(line));
 
@@ -297,13 +440,13 @@ class SerialDevice implements HubDevice {
         final written = port.write(bytes);
         if (written != bytes.length) {
           _fail('Short write on $portPath ($written/${bytes.length})');
+          return false;
         }
+        return true;
       } on Object catch (e) {
-        // Common when the peer closes, USB unplugs, or usbipd detaches:
-        // SerialPortError Input/output error (errno 5).
         _fail('Serial write error: $e');
+        return false;
       }
-      return;
     }
 
     final io = _ioWrite;
@@ -311,41 +454,137 @@ class SerialDevice implements HubDevice {
       try {
         io.writeFromSync(bytes);
         io.flushSync();
+        return true;
       } on Object catch (e) {
         _fail('IO write failed: $e');
+        return false;
       }
-      return;
     }
 
     _fail('Cannot write command — port not open');
+    return false;
   }
 
   void _onBytes(Uint8List data) {
-    _lineBuf.write(utf8.decode(data, allowMalformed: true));
-    var content = _lineBuf.toString();
-    var newline = content.indexOf('\n');
-    while (newline >= 0) {
-      final line = content.substring(0, newline);
-      content = content.substring(newline + 1);
-      final frame = TelemetryFrame.tryParseLine(line);
-      if (frame != null) {
-        _latest = frame;
-        _error = false;
-        _errorMessage = null;
-        if (!_framesController.isClosed) {
-          _framesController.add(frame);
-        }
-      }
-      newline = content.indexOf('\n');
+    if (_disposed || _error) {
+      // Drop late bytes from a dying reader after we already failed.
+      return;
     }
-    _lineBuf
-      ..clear()
-      ..write(content);
+    try {
+      _lineBuf.write(utf8.decode(data, allowMalformed: true));
+      var content = _lineBuf.toString();
+      var newline = content.indexOf('\n');
+      while (newline >= 0) {
+        final line = content.substring(0, newline);
+        content = content.substring(newline + 1);
+        final frame = TelemetryFrame.tryParseLine(line);
+        if (frame != null) {
+          _latest = frame;
+          _lastFrameAt = DateTime.now();
+          _error = false;
+          _reconnecting = false;
+          _errorMessage = null;
+          _reconnectAttempt = 0;
+          if (!_framesController.isClosed) {
+            _framesController.add(frame);
+          }
+        }
+        newline = content.indexOf('\n');
+      }
+      _lineBuf
+        ..clear()
+        ..write(content);
+    } on Object catch (e) {
+      _fail('Serial decode error: $e');
+    }
   }
 
-  void _fail(String message) {
+  void _startWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_disposed || _error || !_transportOpen) {
+        return;
+      }
+      final now = DateTime.now();
+      if (_lastFrameAt != null) {
+        if (now.difference(_lastFrameAt!) > telemetryTimeout) {
+          _fail(
+            'No telemetry for ${telemetryTimeout.inSeconds}s '
+            '(peer silent or hub power loss)',
+          );
+        }
+        return;
+      }
+      final opened = _openedAt;
+      if (opened != null && now.difference(opened) > initialOpenGrace) {
+        _fail(
+          'No telemetry within ${initialOpenGrace.inSeconds}s of open',
+        );
+      }
+    });
+  }
+
+  void _fail(String message, {bool scheduleReconnect = true}) {
+    if (_disposed) {
+      return;
+    }
+
+    final alreadyDown = _error && !_transportOpen;
     _error = true;
     _errorMessage = message;
+    if (!alreadyDown) {
+      _closeTransportOnly();
+    }
+
+    if (!scheduleReconnect) {
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
+      _reconnecting = false;
+      _notifyStatus();
+      return;
+    }
+
+    // Keep an in-flight backoff timer; only start one if idle.
+    if (_reconnectTimer != null) {
+      _reconnecting = true;
+      _notifyStatus();
+      return;
+    }
+    _scheduleReconnect();
+  }
+
+  void _scheduleReconnect() {
+    if (_disposed) {
+      return;
+    }
+    _reconnectTimer?.cancel();
+    _reconnecting = true;
+
+    final exp = min(_reconnectAttempt, 4);
+    final delay = Duration(
+      milliseconds: min(
+        1000 * (1 << exp),
+        _backoffCap.inMilliseconds,
+      ),
+    );
+    _reconnectAttempt += 1;
+    final root = (_errorMessage ?? 'Link down').split(' — retry').first;
+    _errorMessage = '$root — retry in ${delay.inSeconds}s…';
+    _notifyStatus();
+
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
+      if (_disposed) {
+        return;
+      }
+      _reconnecting = true;
+      _errorMessage = 'Reconnecting to $portPath…';
+      _notifyStatus();
+      _openTransport(resetBackoff: false);
+    });
+  }
+
+  void _notifyStatus() {
     if (!_statusController.isClosed) {
       _statusController.add(null);
     }
@@ -373,7 +612,11 @@ void _ioReadIsolateMain(_IoReadSpawn args) {
       args.sendPort.send(Uint8List.fromList(buffer.sublist(0, n)));
     }
   } on Object catch (e) {
-    args.sendPort.send(e.toString());
+    try {
+      args.sendPort.send(e.toString());
+    } on Object {
+      // isolate / port already closed
+    }
   } finally {
     try {
       raf?.closeSync();
