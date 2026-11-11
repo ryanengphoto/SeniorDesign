@@ -42,7 +42,7 @@
 // -----------------------------------------------------------------------------
 `define ADDR_SYS_STATUS     7'h00
 `define ADDR_SYS_CONTROL    7'h01
-`define ADDR_PORT_IRQ       7'h02
+// 0x02 reserved (unused)
 `define ADDR_P0_CONTROL     7'h10
 `define ADDR_P0_STATUS      7'h11
 `define ADDR_P0_VID_HIGH    7'h12

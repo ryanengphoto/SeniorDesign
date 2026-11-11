@@ -152,7 +152,6 @@ Routed on Layer 4 with series $22\Omega$ damping resistors. MCU = SPI master; FP
 - `SPI_MOSI` (Commands / Address)
 - `SPI_MISO` (Telemetry / Descriptors)
 - `SPI_CS_N` (Active-Low Chip Select)
-- `IRQ_N` (Optional active-low IRQ from FPGA to STM32 EXTI; baseline firmware is a polling loop)
 
 ### Host UART (STM32 $\leftrightarrow$ CP2102 / management USB)
 
@@ -178,7 +177,7 @@ $4.7\text{ k}\Omega$ pull-up resistors to $+3.3\text{V}$ with distinct hardware 
 - **Exposed Test Points ($1.0\text{ mm}$ loops):**
   - `TP_GND`, `TP_5V_RAW`, `TP_3V3`
   - `TP_D+_IN[1:4]`, `TP_D-_IN[1:4]`
-  - `TP_IRQ_N`, `TP_MUX_EN[1:4]`
+  - `TP_MUX_EN[1:4]`
 
 
 

@@ -76,9 +76,9 @@ module register_file_sva (
                     $error("register_file SVA: clear_fault without prior CONTROL[6] write");
                 end
 
-                if (reg_raddr == `ADDR_SYS_STATUS || reg_raddr == `ADDR_PORT_IRQ) begin
+                if (reg_raddr == `ADDR_SYS_STATUS) begin
                     if (reg_rdata[3:0] !== kill)
-                        $error("register_file SVA: SYS/IRQ kill mirror mismatch");
+                        $error("register_file SVA: SYS_STATUS kill mirror mismatch");
                 end else if (r_is_port) begin
                     case (reg_raddr[3:0])
                         4'h1: if (reg_rdata !==

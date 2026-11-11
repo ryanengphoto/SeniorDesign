@@ -88,8 +88,6 @@ module register_file (
             reg_rdata = {4'h0, kill};
         else if (reg_raddr == `ADDR_SYS_CONTROL)
             reg_rdata = sys_control;
-        else if (reg_raddr == `ADDR_PORT_IRQ)
-            reg_rdata = {4'h0, kill};
         else if (r_is_port) begin
             case (reg_raddr[3:0])
                 4'h0: reg_rdata = p_control[r_port];

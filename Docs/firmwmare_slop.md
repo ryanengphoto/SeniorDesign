@@ -27,7 +27,7 @@ The STM32 runs exclusively on the **out-of-band management plane**. It does not 
 
 ### Baseline architecture (from `d_c_txt.md`)
 
-The firmware follows a **simple polling loop**: continually refresh FPGA register and sensor readings and forward them to the GUI over UART. Interrupt-driven FPGA IRQ and RTOS threading are **optional enhancements**, not required for the baseline management plane (only four ports + a handful of sensors).
+The firmware follows a **simple polling loop**: continually refresh FPGA register and sensor readings and forward them to the GUI over UART. RTOS threading is not required for the baseline management plane (only four ports + a handful of sensors).
 
 ```
 init clocks, SPI, I2C, UART
@@ -48,7 +48,6 @@ loop forever:
 | **UART** | `USART1` (or board-assigned) | Host GUI via CP2102 USB–UART | 115200 8-N-1 (or project baud in config); primary management link |
 | **SPI Master** | `SPI1` | FPGA register interface | 4-wire master, Mode 0 (CPOL=0, CPHA=0), ≤ 25 MHz |
 | **I2C Master** | `I2C1` | INA219 power monitors | Fast-Mode (400 kHz) |
-| **External Interrupt** | `EXTI` (optional) | FPGA `IRQ_N` | Falling-edge; not required for baseline poll loop |
 | **Hardware Timers** | `TIMx` | Telemetry cadence | Enough to hit ≤ 100 ms GUI update (e.g. 10–50 Hz poll) |
 | **USB OTG FS** | Optional | Alternate CDC-ACM | Prefer UART+bridge on this carrier; CDC only if redesign drops CP2102 |
 
@@ -64,7 +63,6 @@ Baseline is one non-blocking super-loop. Logical modules (files) below may be se
 * SPI transactions matching [`Docs/fabric_slop.md`](fabric_slop.md) §5 (16-bit framing, register map `0x00`–`0x47`).
 * Periodic burst read of `SYS_STATUS`, per-port `Pn_STATUS`, VID/PID/class bytes.
 * Write path for `Pn_CONTROL` (manual kill, clear fault, policy) and soft reset.
-* Optional: if `IRQ_N` is wired, an EXTI ISR may set a “service FPGA now” flag; the loop still owns SPI.
 
 ### 3.2. Power monitor (`power_monitor.c`)
 * Poll addresses `0x40`–`0x43` (see board doc).
@@ -72,8 +70,9 @@ Baseline is one non-blocking super-loop. Logical modules (files) below may be se
 * Overcurrent vs negotiated threshold → alert in telemetry and optional FPGA kill request.
 
 ### 3.3. Port state (`policy_engine.c`)
-* Per-port states: `DISCONNECTED`, `ENUMERATING`, `AUTHORIZED`, `QUARANTINED`, `MANUAL_BLOCKED`.
-* Map FPGA threat codes 0–7 ([`Docs/fabric_slop.md`](fabric_slop.md) §6) into those states.
+* Per-port states on the **host UART JSON** (GUI contract): `DISCONNECTED`, `AUTHORIZED`, `QUARANTINED`, `MANUAL_BLOCKED`.
+  FPGA `Pn_STATUS` still has Attached/Configured for SPI-side logic; those flags are **not** sent as separate UART fields / an `ENUMERATING` state.
+* Map FPGA threat codes 0–7 ([`Docs/fabric_slop.md`](fabric_slop.md) §6) into those host states.
 * Whitelist / challenge / staging power are **advanced**; stub clearly if unimplemented.
 
 ### 3.4. Host link (`telemetry_proto.c`)

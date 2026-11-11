@@ -129,9 +129,9 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 
 | Address (Hex) | Register Name | Access | Reset | Description / Bit Definitions |
 |:---:|---|:---:|:---:|---|
-| `0x00` | `SYS_STATUS` | RO | `0x00` | `[7:4]` Global Error Code, `[3:0]` Active IRQ flags for Ports 3 to 0 |
+| `0x00` | `SYS_STATUS` | RO | `0x00` | `[7:4]` Global Error Code, `[3:0]` Per-port kill sticky (ports 3..0) |
 | `0x01` | `SYS_CONTROL` | RW | `0x00` | `[7]` Global Soft Reset, `[3:0]` Force Global MUX Enable Override |
-| `0x02` | `PORT_IRQ_STATUS` | RO | `0x00` | `[7:4]` Reserved, `[3:0]` Unserviced IRQ per port (Cleared on read) |
+| `0x02` | — | — | — | Reserved (unused; do not implement) |
 | `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill, `[6]` Clear Fault, `[2:0]` Policy Mode |
 | `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` Configured, `[3:0]` Threat Code |
 | `0x12` | `P0_VID_HIGH` | RO | `0x00` | Parsed Vendor ID High Byte (`VID[15:8]`) |
@@ -151,10 +151,10 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | Threat Code (`4'h_`) | Threat Name | Trigger Condition | Hardware Action |
 |:---:|---|---|---|
 | `0x0` | `NO_FAULT` | Normal operation. | Normal passthrough (MUX closed). |
-| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage port. | Open MUX (<20 ns), cut eFuse, assert IRQ. |
-| `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open MUX (≤100 ns target), assert status / IRQ. |
-| `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Drop packets, assert IRQ. |
-| `0x4` | `DESCRIPTOR_OVERFLOW` | `wTotalLength > 512` or length mismatch. | Isolate port, assert IRQ. |
+| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage port. | Open MUX (<20 ns), cut eFuse, update status. |
+| `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open MUX (≤100 ns target), update status. |
+| `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Drop packets, update status. |
+| `0x4` | `DESCRIPTOR_OVERFLOW` | `wTotalLength > 512` or length mismatch. | Isolate port, update status. |
 | `0x5` | `CRC_TOKEN_FAULT` | Token CRC-5 or data CRC-16 failure. | Log error, isolate on repeat. |
 | `0x6` | `BIT_STUFF_ERROR` | Seven consecutive ones with no transition. | Reset port receiver, isolate. |
 | `0x7` | `MANUAL_HOST_KILL` | User command via GUI. | Open MUX, cut eFuse. |

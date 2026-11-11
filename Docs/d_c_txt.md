@@ -100,4 +100,4 @@ Figure 4: FPGA Block Diagram
 Embedded Software Diagram
  
 Figure 5: Software Flowchart
-The MCU firmware will follow a simple polling loop, since it only needs to read the data from 4 ports and from related power sensors in the analog frontend, there is not a significant need to introduce interrupt complexity. It will follow the flowchart above, where it continually refreshes register and sensor readings in an infinite loop and forwards that info to the GUI over UART. 
+The MCU firmware will follow a simple polling loop: it only needs to read the data from 4 ports and from related power sensors in the analog frontend. It will follow the flowchart above, where it continually refreshes register and sensor readings in an infinite loop and forwards that info to the GUI over UART. 
