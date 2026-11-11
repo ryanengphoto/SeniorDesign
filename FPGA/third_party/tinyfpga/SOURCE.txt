@@ -1,0 +1,11 @@
+Upstream repository: https://github.com/tinyfpga/TinyFPGA-Bootloader
+Upstream commit:     97f6353540bf7c0d27f5612f202b48f41da75299
+License:             Apache-2.0 (see LICENSE)
+
+Live copies in the Vivado project:
+  FPGA/senior_design.srcs/sources_1/new/usb_fs_rx.v
+  FPGA/senior_design.srcs/sources_1/new/strobe.v
+  FPGA/senior_design.srcs/sources_1/new/usb_reset_det.v
+  FPGA/senior_design.srcs/sim_1/new/usb_fs_tx.v   (sim stimulus only)
+
+Modifications vs upstream: `timescale; strobe.v ANSI #() parameters for xvlog.

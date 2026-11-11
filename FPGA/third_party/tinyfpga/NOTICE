@@ -1,0 +1,7 @@
+TinyFPGA Bootloader USB FS soft-PHY fragments
+Copyright (c) Luke Valenty and TinyFPGA-Bootloader contributors
+Licensed under the Apache License, Version 2.0
+
+Upstream: https://github.com/tinyfpga/TinyFPGA-Bootloader
+Vendored for the senior-design USB security gateway FPGA sniffer
+(simulation / RX bring-up). See LICENSE in this directory.

@@ -9,6 +9,7 @@ Requirements, architecture narratives, and subsystem specs for the hardware-secu
 | Product / goals / engineering tables | [`d_c_txt.md`](d_c_txt.md) | [`init_specs.md`](init_specs.md) |
 | Carrier PCB | [`Board_slop.md`](Board_slop.md) | `d_c_txt.md`, [`BlockDiagrams/Rendered/pcb_bd.jpg`](BlockDiagrams/Rendered/pcb_bd.jpg) |
 | FPGA fabric | [`fabric_slop.md`](fabric_slop.md) | `d_c_txt.md`, [`BlockDiagrams/Rendered/fabric_bd.jpg`](BlockDiagrams/Rendered/fabric_bd.jpg) |
+| Per-port sniffer (draft) | [`sniffer_block_spec.md`](sniffer_block_spec.md) | Open decisions; does not override fabric until owner locks them |
 | MCU firmware | [`firmwmare_slop.md`](firmwmare_slop.md) | `fabric_slop.md`, flowchart under `BlockDiagrams/Rendered/` |
 
 Agents directed at **board**, **fabric**, or **firmware** must read the matching primary doc **and** [`d_c_txt.md`](d_c_txt.md) before implementing. Folder-level pointers: [`PCB/AGENTS.md`](../PCB/AGENTS.md), [`FPGA/AGENTS.md`](../FPGA/AGENTS.md), root [`AGENTS.md`](../AGENTS.md) (firmware section until a `Firmware/` tree exists).

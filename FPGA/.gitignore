@@ -13,6 +13,10 @@
 *.vitis/
 *.xsa/
 
+# Coverage reports (XSim scenario matrix + Verilator annotate/dat)
+cov/
+verilator/obj_dir/
+
 # Vivado local / temp
 .Xil/
 .jobs/

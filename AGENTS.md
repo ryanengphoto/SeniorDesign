@@ -13,7 +13,7 @@ Senior Design project: a **hardware-secure 4-to-1 USB hub**. Custom PCB, FPGA in
 | Path | Role | Agent notes |
 | --- | --- | --- |
 | `Docs/` | Specs, diagrams, reports | `Docs/AGENTS.md`; read area docs before implementing |
-| `FPGA/` | HDL, constraints, Vivado project | `FPGA/AGENTS.md` + **`Docs/fabric_slop.md`** + `Docs/d_c_txt.md`; `make -C FPGA build` / `sim` / `synth` / `gui` |
+| `FPGA/` | HDL, constraints, Vivado project | `FPGA/AGENTS.md` + **`FPGA/testing.md`** (sims/TBs) + **`Docs/fabric_slop.md`** + `Docs/d_c_txt.md`; `make -C FPGA build` / `sim` / `sim-all` / `synth` / `gui` |
 | `PCB/` | Schematics, layout, BOMs | `PCB/AGENTS.md` + **`Docs/Board_slop.md`** + `Docs/d_c_txt.md` |
 | Firmware (MCU) | STM32 management plane (sources TBD) | **`Docs/firmwmare_slop.md`** + `Docs/d_c_txt.md` + SPI map in `Docs/fabric_slop.md`; polling loop + UART to GUI |
 | `GUI/` | Operator console (FastAPI + React) | `GUI/AGENTS.md`, prototype status in `GUI/state.md`; protocol aligns with firmware/fabric docs |
@@ -30,7 +30,7 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 
 | Path | Common commands |
 | --- | --- |
-| `FPGA/` | `make -C FPGA build`, `make -C FPGA sim`, `make -C FPGA synth`, `make -C FPGA gui`, `make -C FPGA clean` |
+| `FPGA/` | `make -C FPGA build`, `make -C FPGA sim`, `make -C FPGA sim-all`, `make -C FPGA synth`, `make -C FPGA gui`, `make -C FPGA clean` — details in `FPGA/testing.md` |
 | `GUI/` | `make -C GUI dev`, `make -C GUI backend`, `make -C GUI frontend`, `make -C GUI stop` |
 | `Website/` | `cd Website && ./deploy-maverick.sh --build` (Maverick; pre-authorized for agents) |
 
@@ -72,7 +72,8 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 - `Docs/fabric_slop.md` — FPGA hierarchy, register map, threat codes
 - `Docs/firmwmare_slop.md` — MCU polling loop, UART JSON telemetry
 - `PCB/AGENTS.md` — board agent required reading
-- `FPGA/AGENTS.md` — Vivado project layout, Make targets, RTL conventions
+- `FPGA/AGENTS.md` — Vivado project layout, RTL conventions; points at `FPGA/testing.md`
+- `FPGA/testing.md` — testbenches, sim commands, Make/env overrides, coverage
 - `GUI/AGENTS.md` — operator console commands and conventions
 - `Website/AGENTS.md` — Astro dev server
 - `Website/state.md` — what is built vs placeholder vs not built on the public site

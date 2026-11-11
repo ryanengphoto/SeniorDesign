@@ -65,4 +65,14 @@
 `define THREAT_BIT_STUFF_ERROR      4'h6
 `define THREAT_MANUAL_HOST_KILL     4'h7
 
+// -----------------------------------------------------------------------------
+// Midterm UART port-status byte (Fig. 19 example 0xC1)
+// Text: attached + isolated high, plus a threat-present flag.
+// Exact figure callouts are image-only; bits below reproduce 0xC1 when all set.
+// -----------------------------------------------------------------------------
+`define PORT_STATUS_ATTACHED_BIT      0
+`define PORT_STATUS_ISOLATED_BIT      6
+`define PORT_STATUS_THREAT_PRESENT_BIT 7
+`define PORT_STATUS_EXAMPLE_C1        8'hC1
+
 `endif // DEFINES_SVH
