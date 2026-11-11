@@ -226,4 +226,24 @@ module main_wrapper #(
         .reg_rdata(reg_rdata)
     );
 
+`ifndef VERILATOR
+    // synthesis translate_off
+    main_wrapper_sva u_main_sva (
+        .clk         (clk_48m),
+        .rst         (rst),
+        .kill        (kill),
+        .p0_mux_en_n (p0_mux_en_n),
+        .p1_mux_en_n (p1_mux_en_n),
+        .p2_mux_en_n (p2_mux_en_n),
+        .p3_mux_en_n (p3_mux_en_n),
+        .p0_efuse_en (p0_efuse_en),
+        .p1_efuse_en (p1_efuse_en),
+        .p2_efuse_en (p2_efuse_en),
+        .p3_efuse_en (p3_efuse_en),
+        .led         (led),
+        .led_r       (led_r)
+    );
+    // synthesis translate_on
+`endif
+
 endmodule

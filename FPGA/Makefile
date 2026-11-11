@@ -38,7 +38,9 @@ SIM_ALL_TOPS := \
 	tb_spi_enum_e2e \
 	tb_main_selfstim \
 	tb_spi_manual_kill \
-	tb_kill_manual_cross
+	tb_kill_manual_cross \
+	tb_cov_isolation \
+	tb_cov_sniffer
 
 .PHONY: help build synth sim sim-all cov-verilator gui clean check-vivado check-verilator
 
@@ -131,7 +133,7 @@ endif
 
 cov-verilator: check-verilator
 ifeq ($(OS),Windows_NT)
-	"$(MSYS_BASH)" "$(subst \,/,$(CURDIR))/scripts/run_verilator_cov.sh"
+	$(MSYS_BASH) -lc "cd $$(cygpath -u '$(CURDIR)') && bash scripts/run_verilator_cov.sh"
 else
 	bash scripts/run_verilator_cov.sh
 endif

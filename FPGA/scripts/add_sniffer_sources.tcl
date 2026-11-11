@@ -51,7 +51,16 @@ foreach f [list \
   [file join $sim tb_main_selfstim.sv] \
   [file join $sim tb_spi_manual_kill.sv] \
   [file join $sim tb_kill_manual_cross.sv] \
+  [file join $sim tb_cov_isolation.sv] \
+  [file join $sim tb_cov_sniffer.sv] \
   [file join $sim isolation_controller_sva.sv] \
+  [file join $sim sniffer_block_sva.sv] \
+  [file join $sim enumeration_analysis_sva.sv] \
+  [file join $sim usb_packet_frontend_sva.sv] \
+  [file join $sim sniffer_wrapper_sva.sv] \
+  [file join $sim register_file_sva.sv] \
+  [file join $sim spi_slave_sva.sv] \
+  [file join $sim main_wrapper_sva.sv] \
 ] {
   if {[llength [get_files -quiet -of_objects [get_filesets sim_1] $f]] == 0} {
     add_files -fileset sim_1 -norecurse $f

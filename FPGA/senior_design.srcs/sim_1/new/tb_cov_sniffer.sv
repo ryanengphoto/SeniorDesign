@@ -112,6 +112,10 @@ module tb_cov_sniffer;
     localparam [3:0] PID_DATA1 = 4'b1011;
     localparam [3:0] PID_ACK   = 4'b0010;
     localparam [3:0] PID_IN    = 4'b1001;
+    localparam [3:0] PID_SOF   = 4'b0101;
+    localparam [3:0] PID_OUT   = 4'b0001;
+    localparam [3:0] PID_NAK   = 4'b1010;
+    localparam [3:0] PID_STALL = 4'b1110;
 
     logic [7:0] tx_buf [0:63];
     int         tx_n;
@@ -285,8 +289,50 @@ module tb_cov_sniffer;
         send_packet(PID_IN, 2, 1'b0);
     endtask
 
+    task automatic send_out_token(input [6:0] addr_i, input [3:0] endp_i);
+        logic [10:0] field;
+        logic [4:0]  c5;
+        field = {endp_i, addr_i};
+        c5 = usb_crc5(field);
+        tx_buf[0] = {endp_i[0], addr_i};
+        tx_buf[1] = {c5, endp_i[3:1]};
+        send_packet(PID_OUT, 2, 1'b0);
+    endtask
+
+    task automatic send_sof(input [10:0] frame_i);
+        logic [4:0] c5;
+        c5 = usb_crc5(frame_i);
+        tx_buf[0] = frame_i[7:0];
+        tx_buf[1] = {c5, frame_i[10:8]};
+        send_packet(PID_SOF, 2, 1'b0);
+    endtask
+
+    task automatic send_get_desc_setup(input [6:0] addr_i, input [7:0] dtype,
+                                       input [7:0] wlen_lo, input [7:0] wlen_hi);
+        send_setup_token(addr_i, 4'h0);
+        tx_buf[0] = 8'h80; tx_buf[1] = 8'h06;
+        tx_buf[2] = 8'h00; tx_buf[3] = dtype;
+        tx_buf[4] = 8'h00; tx_buf[5] = 8'h00;
+        tx_buf[6] = wlen_lo; tx_buf[7] = wlen_hi;
+        send_data_bytes(PID_DATA0, 8, 1'b0);
+    endtask
+
+    task automatic fill_device_desc(input [7:0] dclass, input [15:0] vid_i,
+                                    input [15:0] pid_i);
+        tx_buf[0]  = 8'h12; tx_buf[1]  = 8'h01;
+        tx_buf[2]  = 8'h00; tx_buf[3]  = 8'h02;
+        tx_buf[4]  = dclass; tx_buf[5]  = 8'h00; tx_buf[6] = 8'h00;
+        tx_buf[7]  = 8'h40;
+        tx_buf[8]  = vid_i[7:0]; tx_buf[9]  = vid_i[15:8];
+        tx_buf[10] = pid_i[7:0]; tx_buf[11] = pid_i[15:8];
+        tx_buf[12] = 8'h00; tx_buf[13] = 8'h01;
+        tx_buf[14] = 8'h00; tx_buf[15] = 8'h00;
+        tx_buf[16] = 8'h00; tx_buf[17] = 8'h01;
+    endtask
+
     initial begin
         int base;
+        int ai;
         errors = 0;
         corrupt = 1'b0;
         sending = 1'b0;
@@ -457,30 +503,21 @@ module tb_cov_sniffer;
 
         // ----------------------------------------------------------
         // Config with dlen==0 after config header → ST_SCAN_INTF abort
+        // Need (scan_i+5) < got_len so zero-length arm wins over EOF arm.
         // ----------------------------------------------------------
-        send_setup_token(7'd0, 4'h0);
-        tx_buf[0] = 8'h80; tx_buf[1] = 8'h06;
-        tx_buf[2] = 8'h00; tx_buf[3] = 8'h02;
-        tx_buf[4] = 8'h00; tx_buf[5] = 8'h00;
-        tx_buf[6] = 8'h0A; tx_buf[7] = 8'h00;
-        send_data_bytes(PID_DATA0, 8, 1'b0);
-
+        send_get_desc_setup(7'd0, 8'h02, 8'h18, 8'h00);
         tx_buf[0] = 8'h09; tx_buf[1] = 8'h02;
-        tx_buf[2] = 8'h0A; tx_buf[3] = 8'h00;
+        tx_buf[2] = 8'h18; tx_buf[3] = 8'h00;
         tx_buf[4] = 8'h01; tx_buf[5] = 8'h01;
         tx_buf[6] = 8'h00; tx_buf[7] = 8'hA0;
         tx_buf[8] = 8'h32;
-        tx_buf[9] = 8'h00; // zero-length next desc → scan abort
-        send_data_bytes(PID_DATA1, 10, 1'b0);
+        tx_buf[9] = 8'h00; // zero-length next desc at scan_i=9; 9+5=14 < 24
+        for (ai = 10; ai < 24; ai++) tx_buf[ai] = 8'hA5;
+        send_data_bytes(PID_DATA1, 24, 1'b0);
         repeat (16) @(posedge clk_48m);
 
         // Config wLength=0 → clamp want_len to 64 (edge of setup decode)
-        send_setup_token(7'd0, 4'h0);
-        tx_buf[0] = 8'h80; tx_buf[1] = 8'h06;
-        tx_buf[2] = 8'h00; tx_buf[3] = 8'h02;
-        tx_buf[4] = 8'h00; tx_buf[5] = 8'h00;
-        tx_buf[6] = 8'h00; tx_buf[7] = 8'h00; // wLength=0 → want_len=64
-        send_data_bytes(PID_DATA0, 8, 1'b0);
+        send_get_desc_setup(7'd0, 8'h02, 8'h00, 8'h00);
         // Short DATA then stop — stays in WAIT_DESC / partial; next SETUP aborts
         tx_buf[0] = 8'h09; tx_buf[1] = 8'h02;
         tx_buf[2] = 8'h09; tx_buf[3] = 8'h00;
@@ -489,17 +526,138 @@ module tb_cov_sniffer;
         tx_buf[8] = 8'h32;
         send_data_bytes(PID_DATA1, 9, 1'b0);
         // Abort with new SETUP
-        send_setup_token(7'd0, 4'h0);
-        tx_buf[0] = 8'h80; tx_buf[1] = 8'h06;
-        tx_buf[2] = 8'h00; tx_buf[3] = 8'h01;
-        tx_buf[4] = 8'h00; tx_buf[5] = 8'h00;
-        tx_buf[6] = 8'h12; tx_buf[7] = 8'h00;
-        send_data_bytes(PID_DATA0, 8, 1'b0);
+        send_get_desc_setup(7'd0, 8'h01, 8'h12, 8'h00);
         // Incomplete setup data (only 4 bytes) → not 8 → ST_IDLE
         tx_buf[0] = 8'h12; tx_buf[1] = 8'h01;
         tx_buf[2] = 8'h00; tx_buf[3] = 8'h02;
         send_data_bytes(PID_DATA1, 4, 1'b0);
         repeat (8) @(posedge clk_48m);
+
+        // ----------------------------------------------------------
+        // Branch/toggle: addr/endp/SOF/handshake sweep + enum edges
+        // ----------------------------------------------------------
+        send_sof(11'h000);
+        send_sof(11'h001);
+        send_sof(11'h3FF);
+        send_sof(11'h7FF);
+
+        send_in_token(7'd1, 4'h1);
+        send_in_token(7'd127, 4'hF);
+        send_out_token(7'd2, 4'h2);
+        send_out_token(7'd55, 4'h8);
+        send_handshake(PID_NAK);
+        send_handshake(PID_STALL);
+
+        // SETUP on non-EP0 — must not enter enum SETUP_DATA
+        send_setup_token(7'd3, 4'h1);
+        tx_buf[0] = 8'h80; tx_buf[1] = 8'h06;
+        tx_buf[2] = 8'h00; tx_buf[3] = 8'h01;
+        tx_buf[4] = 8'h00; tx_buf[5] = 8'h00;
+        tx_buf[6] = 8'h12; tx_buf[7] = 8'h00;
+        send_data_bytes(PID_DATA0, 8, 1'b0);
+
+        // Empty DATA after SETUP → setup_count != 8 → ST_IDLE
+        send_setup_token(7'd0, 4'h0);
+        send_handshake(PID_DATA0); // 0-byte DATA0 (EOP-only)
+
+        // wLength high byte set → clamp want_len to 64
+        send_get_desc_setup(7'd0, 8'h02, 8'h10, 8'h01);
+        tx_buf[0] = 8'h09; tx_buf[1] = 8'h02;
+        tx_buf[2] = 8'h09; tx_buf[3] = 8'h00;
+        tx_buf[4] = 8'h01; tx_buf[5] = 8'h01;
+        tx_buf[6] = 8'h00; tx_buf[7] = 8'hA0;
+        tx_buf[8] = 8'h32;
+        send_data_bytes(PID_DATA1, 9, 1'b0);
+        // Abort incomplete (want 64, got 9)
+        send_setup_token(7'd0, 4'h0);
+        wait_idle_bits(4);
+
+        // wLength low > 64 → clamp
+        send_get_desc_setup(7'd0, 8'h02, 8'h80, 8'h00);
+        send_setup_token(7'd0, 4'h0); // abort WAIT_DESC
+        wait_idle_bits(4);
+
+        // Multi-packet device descriptor (hit ST_WAIT_DESC re-entry)
+        send_get_desc_setup(7'd5, 8'h01, 8'h12, 8'h00);
+        fill_device_desc(8'h08, 16'hABCD, 16'hEF01);
+        send_data_bytes(PID_DATA1, 8, 1'b0);  // partial (bytes 0..7)
+        // Remainder bytes 8..17 into tx_buf[0..]
+        tx_buf[0] = 8'hCD; tx_buf[1] = 8'hAB; // vid
+        tx_buf[2] = 8'h01; tx_buf[3] = 8'hEF; // pid
+        tx_buf[4] = 8'h00; tx_buf[5] = 8'h01;
+        tx_buf[6] = 8'h00; tx_buf[7] = 8'h00;
+        tx_buf[8] = 8'h00; tx_buf[9] = 8'h01;
+        send_data_bytes(PID_DATA0, 10, 1'b0);
+        repeat (4) @(posedge clk_48m);
+        if (!device_desc_valid || vid !== 16'hABCD || pid_dev !== 16'hEF01 ||
+            dev_class !== 8'h08) begin
+            $error("multi-pkt device_desc vid=%h pid=%h class=%h v=%0b",
+                   vid, pid_dev, dev_class, device_desc_valid);
+            errors++;
+        end
+
+        // Another device class / VID toggle (HID device class, no intf yet)
+        send_get_desc_setup(7'd10, 8'h01, 8'h12, 8'h00);
+        fill_device_desc(8'h03, 16'hF00D, 16'h0BAD);
+        send_data_bytes(PID_DATA1, 18, 1'b0);
+        repeat (4) @(posedge clk_48m);
+
+        // Mass-storage interface (class 0x08) — intf latch, no HID kill
+        clear_both();
+        send_get_desc_setup(7'd0, 8'h02, 8'h12, 8'h00);
+        tx_buf[0] = 8'h09; tx_buf[1] = 8'h02;
+        tx_buf[2] = 8'h12; tx_buf[3] = 8'h00;
+        tx_buf[4] = 8'h01; tx_buf[5] = 8'h01;
+        tx_buf[6] = 8'h00; tx_buf[7] = 8'hA0;
+        tx_buf[8] = 8'h32;
+        tx_buf[9]  = 8'h09; tx_buf[10] = 8'h04;
+        tx_buf[11] = 8'h00; tx_buf[12] = 8'h00;
+        tx_buf[13] = 8'h02; tx_buf[14] = 8'h08; // MSC
+        tx_buf[15] = 8'h06; tx_buf[16] = 8'h50;
+        tx_buf[17] = 8'h00;
+        send_data_bytes(PID_DATA1, 18, 1'b0);
+        repeat (16) @(posedge clk_48m);
+        if (!intf_class_valid || intf_class !== 8'h08) begin
+            $error("msc intf=%h valid=%0b", intf_class, intf_class_valid);
+            errors++;
+        end
+        if (kill && threat_code === `THREAT_UNAUTHORIZED_HID) begin
+            $error("MSC must not HID-kill"); errors++;
+        end
+
+        // scan_guard exhaustion: many non-interface descs, no INTF hit
+        clear_both();
+        send_get_desc_setup(7'd0, 8'h02, 8'h40, 8'h00);
+        tx_buf[0] = 8'h09; tx_buf[1] = 8'h02;
+        tx_buf[2] = 8'h40; tx_buf[3] = 8'h00;
+        tx_buf[4] = 8'h01; tx_buf[5] = 8'h01;
+        tx_buf[6] = 8'h00; tx_buf[7] = 8'hA0;
+        tx_buf[8] = 8'h32;
+        // 27 x 2-byte unknown descriptors (dtype 0xFF) → many scan steps
+        for (ai = 0; ai < 27; ai++) begin
+            tx_buf[9 + ai*2]     = 8'h02;
+            tx_buf[9 + ai*2 + 1] = 8'hFF;
+        end
+        tx_buf[63] = 8'h00;
+        send_data_bytes(PID_DATA1, 64, 1'b0);
+        repeat (32) @(posedge clk_48m);
+
+        // Corrupt SETUP token → CRC kill path (token)
+        send_setup_token(7'd0, 4'h0); // baseline good first? skip — corrupt OUT
+        tx_buf[0] = 8'h00; tx_buf[1] = 8'h10;
+        send_packet(PID_OUT, 2, 1'b1);
+        repeat (8) @(posedge clk_48m);
+        if (!kill || threat_code !== `THREAT_CRC_TOKEN_FAULT) begin
+            $error("token CRC kill"); errors++;
+        end
+        clear_both();
+
+        // Extra clear/manual edges for isolation toggle under sniffer
+        manual_kill = 1'b1;
+        repeat (2) @(posedge clk_48m);
+        manual_kill = 1'b0;
+        clear_both();
+        clear_both();
 
         if (errors == 0) $display("tb_cov_sniffer: PASS");
         else             $display("tb_cov_sniffer: FAIL (%0d errors)", errors);
@@ -507,7 +665,7 @@ module tb_cov_sniffer;
     end
 
     initial begin
-        #100ms;
+        #250ms;
         $error("global timeout");
         $finish;
     end

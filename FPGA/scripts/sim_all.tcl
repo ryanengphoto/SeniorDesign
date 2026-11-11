@@ -27,6 +27,8 @@ set tops [list \
   tb_main_selfstim \
   tb_spi_manual_kill \
   tb_kill_manual_cross \
+  tb_cov_isolation \
+  tb_cov_sniffer \
 ]
 
 if {![file exists $proj_file]} {
@@ -70,8 +72,8 @@ proc sim_all_check_log {proj_dir top} {
     if {[regexp $fail_pat $txt]} { set fail 1 }
     if {[regexp $pass_pat $txt]} { set saw_pass 1 }
     if {[regexp {Error:} $txt] && !$saw_pass} { set fail 1 }
-    # Concurrent SVA failures from isolation_controller_sva
-    if {[regexp {isolation_controller SVA:} $txt]} { set fail 1 }
+    # Procedural SVA failures (*_sva $error "... SVA: ...")
+    if {[regexp { SVA:} $txt]} { set fail 1 }
   }
   if {!$saw_pass} {
     puts "ERROR: no '$pass_pat' in simulate.log"

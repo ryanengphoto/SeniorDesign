@@ -117,4 +117,18 @@ module usb_packet_frontend (
         end
     end
 
+`ifndef VERILATOR
+    // synthesis translate_off
+    usb_packet_frontend_sva u_fe_sva (
+        .clk       (clk_48m),
+        .rst       (rst),
+        .pkt_start (pkt_start),
+        .pkt_end   (pkt_end),
+        .data_valid(data_valid),
+        .crc_ok    (crc_ok),
+        .crc_fault (crc_fault)
+    );
+    // synthesis translate_on
+`endif
+
 endmodule

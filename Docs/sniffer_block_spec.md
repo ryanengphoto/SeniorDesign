@@ -32,7 +32,7 @@ Sim:
 - `tb_main_selfstim` — `main_wrapper` auto self-stim → LED kill → SPI telemetry → `btn_clear`
 - `tb_spi_manual_kill` — SPI `Pn_CONTROL[7]` operator isolate → threat `0x7` + SPI clear (all ports; no USB)
 - `tb_kill_manual_cross` — CRC kill then SPI manual overwrite to `0x7`; manual sticky ignores CRC; re-arm
-- `isolation_controller_sva` — sim-only checker under `synthesis translate_off`: sticky / manual `0x7` / clear / threat-pulse latch (+ cover counters). Procedural (XSim 2018.2 ignores concurrent `assert property`).
+- Procedural `*_sva` checkers (XSim; stripped under Verilator): `isolation_controller`, `sniffer_block`, `enumeration_analysis`, `usb_packet_frontend`, `sniffer_wrapper`, `register_file`, `spi_slave`, `main_wrapper` — see `FPGA/testing.md`.
 - Regression: `make -C FPGA sim-all` (`scripts/sim_all.tcl`); `COV=1` tries native XSim code coverage when supported; always writes `FPGA/cov/scenario_matrix.txt`
 
 Board bring-up (`main_wrapper` + `cmod_s7_bringup.xdc`):

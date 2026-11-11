@@ -176,4 +176,17 @@ module enumeration_analysis (
         end
     end
 
+`ifndef VERILATOR
+    // synthesis translate_off
+    enumeration_analysis_sva u_enum_sva (
+        .clk               (clk),
+        .rst               (rst),
+        .state             (state),
+        .attached          (attached),
+        .device_desc_valid (device_desc_valid),
+        .intf_class_valid  (intf_class_valid)
+    );
+    // synthesis translate_on
+`endif
+
 endmodule

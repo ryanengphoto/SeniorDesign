@@ -121,6 +121,80 @@ module tb_cov_isolation;
         tick(1);
         expect_state(1'b0, `THREAT_NO_FAULT, "clear vs manual");
 
+        // ----------------------------------------------------------
+        // Branch/toggle: sweep remaining threat codes + edge thrash
+        // ----------------------------------------------------------
+        begin
+            automatic logic [3:0] codes [0:5];
+            int ci;
+            codes[0] = `THREAT_UNAUTHORIZED_HID;
+            codes[1] = `THREAT_KEYSTROKE_BURST;
+            codes[2] = `THREAT_COOLDOWN_BURST;
+            codes[3] = `THREAT_DESCRIPTOR_OVERFLOW;
+            codes[4] = `THREAT_CRC_TOKEN_FAULT;
+            codes[5] = `THREAT_BIT_STUFF_ERROR;
+            for (ci = 0; ci < 6; ci++) begin
+                threat_code_in = codes[ci];
+                threat_pulse   = 1'b1;
+                tick(1);
+                threat_pulse   = 1'b0;
+                tick(1);
+                expect_state(1'b1, codes[ci], "threat sweep");
+                clear_fault = 1'b1;
+                tick(1);
+                clear_fault = 1'b0;
+                tick(1);
+                expect_state(1'b0, `THREAT_NO_FAULT, "sweep clear");
+            end
+        end
+
+        // Pulse with NO_FAULT while idle (still latches kill + code 0)
+        threat_code_in = `THREAT_NO_FAULT;
+        threat_pulse   = 1'b1;
+        tick(1);
+        threat_pulse   = 1'b0;
+        tick(1);
+        expect_state(1'b1, `THREAT_NO_FAULT, "pulse no_fault");
+        clear_fault = 1'b1;
+        tick(1);
+        clear_fault = 1'b0;
+        tick(1);
+
+        // Idle clear / manual edges (toggle thrash; clear while already clear)
+        repeat (3) begin
+            clear_fault = 1'b1;
+            tick(1);
+            clear_fault = 1'b0;
+            tick(1);
+        end
+        repeat (2) begin
+            manual_kill = 1'b1;
+            tick(1);
+            manual_kill = 1'b0;
+            tick(1);
+            clear_fault = 1'b1;
+            tick(1);
+            clear_fault = 1'b0;
+            tick(1);
+        end
+
+        // Pulse ignored while already killed (branch !kill false)
+        threat_code_in = `THREAT_CRC_TOKEN_FAULT;
+        threat_pulse   = 1'b1;
+        tick(1);
+        threat_pulse   = 1'b0;
+        tick(1);
+        threat_code_in = `THREAT_BIT_STUFF_ERROR;
+        threat_pulse   = 1'b1;
+        tick(2);
+        threat_pulse   = 1'b0;
+        tick(1);
+        expect_state(1'b1, `THREAT_CRC_TOKEN_FAULT, "sticky after sweep");
+        clear_fault = 1'b1;
+        tick(1);
+        clear_fault = 1'b0;
+        tick(1);
+
         if (errors == 0) $display("tb_cov_isolation: PASS");
         else             $display("tb_cov_isolation: FAIL (%0d errors)", errors);
         $finish;

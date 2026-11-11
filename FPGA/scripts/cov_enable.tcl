@@ -17,7 +17,7 @@ proc cov_try_enable {cov_dir db_name} {
   }
   if {![cov_tool_supports_xsim_cc]} {
     puts "cov: WARN COV=1 set but native XSim code coverage unsupported on this Vivado (need ≈2020.1+ / xcrg)."
-    puts "cov:       Falling back to scenario matrix + isolation_controller_sva procedural covers."
+    puts "cov:       Falling back to scenario matrix + procedural *_sva checkers."
     return 0
   }
   file mkdir $cov_dir
@@ -75,7 +75,7 @@ proc cov_write_scenario_matrix {out_path results {extra_notes {}}} {
   puts $fh "SPI manual kill 0x7 + clear       | tb_spi_manual_kill                            | see TB PASS"
   puts $fh "CRC↔manual cross / sticky ignore  | tb_kill_manual_cross                          | see TB PASS"
   puts $fh "Board top self-stim + btn_clear   | tb_main_selfstim                              | see TB PASS"
-  puts $fh "isolation sticky/manual/clear SVA | isolation_controller_sva (all DUT sims)        | procedural \$error"
+  puts $fh "DUT procedural *_sva checkers    | isolation/sniffer/enum/frontend/wrapper/RF/SPI/main | \$error … SVA:"
   puts $fh "#"
   puts $fh "# sim_all results:"
   foreach r $results {
@@ -94,7 +94,7 @@ proc cov_scan_sva_covers {log_path} {
   set fh [open $log_path r]
   set txt [read $fh]
   close $fh
-  set err_n [regexp -all {isolation_controller SVA:} $txt]
+  set err_n [regexp -all { SVA:} $txt]
   set cover_n [regexp -all {(?i)cover} $txt]
   return [list $err_n $cover_n]
 }

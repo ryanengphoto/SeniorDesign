@@ -24,7 +24,7 @@ module isolation_controller_sva (
 
     // Previous-cycle samples (antecedent side of |=> ).
     logic       kill_d, clear_d, manual_d, pulse_d;
-    logic [3:0] threat_in_d;
+    logic [3:0] threat_in_d, threat_code_d;
     logic       sample_valid; // high after first post-reset cycle
 
     // Lightweight cover tallies (printed once if non-zero would need end-of-test;
@@ -35,12 +35,13 @@ module isolation_controller_sva (
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            kill_d       <= 1'b0;
-            clear_d      <= 1'b0;
-            manual_d     <= 1'b0;
-            pulse_d      <= 1'b0;
-            threat_in_d  <= 4'h0;
-            sample_valid <= 1'b0;
+            kill_d        <= 1'b0;
+            clear_d       <= 1'b0;
+            manual_d      <= 1'b0;
+            pulse_d       <= 1'b0;
+            threat_in_d   <= 4'h0;
+            threat_code_d <= 4'h0;
+            sample_valid  <= 1'b0;
             cov_manual   <= 0;
             cov_clear    <= 0;
             cov_sticky   <= 0;
@@ -64,6 +65,11 @@ module isolation_controller_sva (
                     !(kill && (threat_code == threat_in_d)))
                     $error("isolation_controller SVA: threat_pulse did not latch threat_code_in");
 
+                // Sticky ignore: while killed (no clear/manual), threat_code must not change.
+                if (kill_d && !clear_d && !manual_d &&
+                    (threat_code != threat_code_d))
+                    $error("isolation_controller SVA: threat_code changed while sticky-killed");
+
                 // Cover tallies (functional stand-in for cover property).
                 if (manual_d && !clear_d && kill &&
                     (threat_code == `THREAT_MANUAL_HOST_KILL))
@@ -74,12 +80,13 @@ module isolation_controller_sva (
                     cov_sticky <= cov_sticky + 1;
             end
 
-            kill_d       <= kill;
-            clear_d      <= clear_fault;
-            manual_d     <= manual_kill;
-            pulse_d      <= threat_pulse;
-            threat_in_d  <= threat_code_in;
-            sample_valid <= 1'b1;
+            kill_d        <= kill;
+            clear_d       <= clear_fault;
+            manual_d      <= manual_kill;
+            pulse_d       <= threat_pulse;
+            threat_in_d   <= threat_code_in;
+            threat_code_d <= threat_code;
+            sample_valid  <= 1'b1;
         end
     end
 

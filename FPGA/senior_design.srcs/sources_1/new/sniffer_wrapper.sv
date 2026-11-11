@@ -78,4 +78,18 @@ module sniffer_wrapper #(
         end
     endgenerate
 
+`ifndef VERILATOR
+    // synthesis translate_off
+    sniffer_wrapper_sva u_wrap_sva (
+        .clk         (clk_48m),
+        .rst         (rst),
+        .clear_fault (clear_fault),
+        .manual_kill (manual_kill),
+        .kill        (kill),
+        .threat_code (threat_code),
+        .port_status (port_status)
+    );
+    // synthesis translate_on
+`endif
+
 endmodule

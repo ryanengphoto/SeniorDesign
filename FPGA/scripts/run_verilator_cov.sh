@@ -84,14 +84,15 @@ run_one() {
   echo "coverage data → $dat"
 }
 
+# Cov TBs live in sim_1 (shared with XSim so isolation_controller_sva runs there).
 # --- isolation_controller (tight, high branch focus) ---
 run_one tb_cov_isolation \
-  "$VTB/tb_cov_isolation.sv" \
+  "$SIM/tb_cov_isolation.sv" \
   "$SRC/isolation_controller.sv"
 
 # --- sniffer_block + TinyFPGA RX/TX path ---
 run_one tb_cov_sniffer \
-  "$VTB/tb_cov_sniffer.sv" \
+  "$SIM/tb_cov_sniffer.sv" \
   "$SRC/sniffer_block.sv" \
   "$SRC/isolation_controller.sv" \
   "$SRC/enumeration_analysis.sv" \
@@ -143,6 +144,14 @@ fi
 echo ""
 echo "==== line coverage (DUT) ===="
 python3 scripts/line_cov_summary.py | tee -a "$SUM"
+
+echo ""
+echo "==== branch coverage (DUT) ===="
+python3 scripts/cov_type_summary.py "$INFO" | tee -a "$SUM"
+
+echo ""
+echo "==== toggle coverage (DUT) ===="
+python3 scripts/toggle_cov_summary.py "$MERGED" | tee -a "$SUM"
 
 echo ""
 echo "cov-verilator: done → $SUM"

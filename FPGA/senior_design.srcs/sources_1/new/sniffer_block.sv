@@ -122,4 +122,26 @@ module sniffer_block #(
         port_status[`PORT_STATUS_THREAT_PRESENT_BIT] = (threat_code != `THREAT_NO_FAULT);
     end
 
+`ifndef VERILATOR
+    // synthesis translate_off
+    sniffer_block_sva #(
+        .POLICY_STORAGE_ONLY(POLICY_STORAGE_ONLY)
+    ) u_sniff_sva (
+        .clk               (clk_48m),
+        .rst               (rst),
+        .crc_fault         (crc_fault),
+        .intf_class_valid  (intf_class_valid),
+        .intf_class_valid_d(intf_class_valid_d),
+        .intf_class        (intf_class),
+        .hid_threat_pulse  (hid_threat_pulse),
+        .threat_pulse      (threat_pulse),
+        .threat_code_in    (threat_code_in),
+        .attached          (attached),
+        .kill              (kill),
+        .threat_code       (threat_code),
+        .port_status       (port_status)
+    );
+    // synthesis translate_on
+`endif
+
 endmodule

@@ -106,4 +106,28 @@ module register_file (
         end
     end
 
+`ifndef VERILATOR
+    // synthesis translate_off
+    register_file_sva u_rf_sva (
+        .clk         (clk),
+        .rst         (rst),
+        .reg_we      (reg_we),
+        .reg_waddr   (reg_waddr),
+        .reg_wdata   (reg_wdata),
+        .reg_raddr   (reg_raddr),
+        .reg_rdata   (reg_rdata),
+        .kill        (kill),
+        .threat_code (threat_code),
+        .port_status (port_status),
+        .vid         (vid),
+        .pid_dev     (pid_dev),
+        .dev_class   (dev_class),
+        .intf_class  (intf_class),
+        .clear_fault (clear_fault),
+        .manual_kill (manual_kill),
+        .p_control   (p_control)
+    );
+    // synthesis translate_on
+`endif
+
 endmodule

@@ -102,4 +102,15 @@ module spi_slave (
         end
     end
 
+`ifndef VERILATOR
+    // synthesis translate_off
+    spi_slave_sva u_spi_sva (
+        .clk      (clk),
+        .rst      (rst),
+        .cs_active(cs_active),
+        .reg_we   (reg_we)
+    );
+    // synthesis translate_on
+`endif
+
 endmodule

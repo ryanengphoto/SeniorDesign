@@ -99,14 +99,29 @@ Must match `SIM_ALL_TOPS` in `Makefile` and `tops` in `scripts/sim_all.tcl`.
 | `tb_main_selfstim` | `main_wrapper` auto self-stim → LED kill → SPI telemetry → `btn_clear` |
 | `tb_spi_manual_kill` | SPI `Pn_CONTROL[7]` → threat `0x7` + clear (all ports; no USB) |
 | `tb_kill_manual_cross` | CRC↔SPI-manual: overwrite to `0x7`, sticky ignore of CRC, re-arm |
+| `tb_cov_isolation` | Directed isolation paths + threat sweep; XSim runs `isolation_controller_sva` |
+| `tb_cov_sniffer` | Broad sniffer/enum/HID/CRC stimulus for coverage; XSim runs SVA on both DUT instances |
 
 ### Sim-only checkers (not a sim top)
 
-| File | Role |
-| --- | --- |
-| `isolation_controller_sva.sv` | Procedural sticky / manual `0x7` / clear / threat-latch monitors. Instantiated from `isolation_controller` under `synthesis translate_off`. |
+All are procedural (XSim 2018.2 ignores concurrent `assert property` / XSIM 43-4127). Instantiated under `synthesis translate_off` + `` `ifndef VERILATOR ``. Any `$error("… SVA: …")` fails `sim` / `sim-all`.
 
-**XSim 2018.2 limits:** concurrent `assert property` / `cover property` are ignored (XSIM 43-4127). File-scope `bind` can hit VRFC 10-946 — do not rely on them on this toolchain.
+| File | Attached to | Checks |
+| --- | --- | --- |
+| `isolation_controller_sva.sv` | `isolation_controller` | Sticky kill; manual→`0x7`; clear releases; threat latch; sticky threat ignore |
+| `sniffer_block_sva.sv` | `sniffer_block` | HID/CRC threat mux; `POLICY_STORAGE_ONLY`; `port_status` bits |
+| `enumeration_analysis_sva.sv` | `enumeration_analysis` | Legal `ST_*`; sticky `attached` / desc / intf valid |
+| `usb_packet_frontend_sva.sv` | `usb_packet_frontend` | `crc_fault`↔`pkt_end`; no orphan end; `data_valid` in-packet |
+| `sniffer_wrapper_sva.sv` | `sniffer_wrapper` | Per-port status mirror; cross-port clear isolation; `0x7` needs manual |
+| `register_file_sva.sv` | `register_file` | CONTROL[6/7]→clear/manual; RO VID/PID/class/status mirrors |
+| `spi_slave_sva.sv` | `spi_slave` | `reg_we` only while CS active; single-cycle we |
+| `main_wrapper_sva.sv` | `main_wrapper` | `mux_en_n`/`efuse_en`/`led`/`led_r` polarity vs `kill` |
+
+**XSim 2018.2 limits:** concurrent `assert property` / `cover property` ignored; file-scope `bind` can hit VRFC 10-946.
+
+### Assertions — depth and scope
+
+DUT-attached checkers cover Priority-1/2 fabric contracts continuously on XSim. Still **not** property-checked (TB scoreboards only): HID timing `0x2`/`0x3`, descriptor overflow `0x4`, bit-stuff `0x6`, deep TinyFPGA line-state FSM.
 
 ### Common TB patterns
 
@@ -125,23 +140,29 @@ Must match `SIM_ALL_TOPS` in `Makefile` and `tops` in `scripts/sim_all.tcl`.
 | **Verilator code coverage** (preferred on lab PCs) | `make cov-verilator` | `FPGA/cov/verilator/summary.txt`, annotated RTL under `annotate/`, `coverage.info` (lcov) |
 | Scenario matrix | Every `sim-all` | `FPGA/cov/scenario_matrix.txt` (gitignored) |
 | Native XSim code coverage (`sbct`) | `COV=1` **and** Vivado ≈2020.1+ with `xcrg` | `FPGA/cov/xsim_db/` (unavailable on 2018.2) |
-| Isolation procedural checkers | XSim DUT sims | `$error("isolation_controller SVA: …")` |
+| Procedural `*_sva` checkers | XSim DUT sims | `$error("… SVA: …")` (see checker table) |
 
 ### Verilator sidecar
 
-Acceptance remains **`make sim-all` (XSim)**. Verilator is for **metrics only**.
+Acceptance remains **`make sim-all` (XSim)** — that is where `isolation_controller_sva` runs. Verilator is for **code-coverage metrics only**; it does **not** replace assertion regression.
 
-| Piece | Path |
+| Piece | Path / note |
 | --- | --- |
-| Directed TBs | `verilator/tb_cov_isolation.sv`, `verilator/tb_cov_sniffer.sv` |
-| Runner | `scripts/run_verilator_cov.sh` |
-| Install (MSYS2) | `pacman -S mingw-w64-ucrt-x86_64-verilator` (~30 MB net) |
-| Summary | `cov/verilator/summary.txt` — e.g. `Total coverage (hit/total) pct%` |
-| Annotated RTL | `cov/verilator/annotate/` — lines marked `%00` are uncovered |
+| Tool | MSYS2 ucrt64 **Verilator 5.040** (`pacman -S mingw-w64-ucrt-x86_64-verilator`) |
+| Run | `make cov-verilator` → `scripts/run_verilator_cov.sh` (Windows: `MSYS_BASH`) |
+| Shared TBs | `sim_1/new/tb_cov_isolation.sv`, `tb_cov_sniffer.sv` (same files XSim uses) |
+| Notes | `verilator/README.md`; build trees under `verilator/obj_dir/` (gitignored) |
+| Flags | `--binary --timing --coverage` (line + branch/expr + toggle; no native FSM on 5.040) |
+| SVA | Stripped via `` `ifndef VERILATOR `` on all `*_sva` instantiations |
+| DUT scope | `isolation_controller` + `sniffer_block` + enum + TinyFPGA RX/TX/`strobe`. **Not** `main_wrapper` / MMCM / SPI RF |
+| Outputs | `cov/verilator/summary.txt`, `annotate/`, `coverage.info` (lcov), `merged.dat` |
+| Helpers | `scripts/line_cov_summary.py`, `cov_type_summary.py`, `toggle_cov_summary.py` |
 
-DUT scope: `isolation_controller` + `sniffer_block` (+ TinyFPGA RX/TX, enum). Not `main_wrapper` / MMCM.
+**Workflow:** improve stimulus in `tb_cov_*` → `make cov-verilator` for metrics → `make sim SIM_TOP=tb_cov_isolation` / `tb_cov_sniffer` (or `sim-all`) to confirm SVA + TB `$error` still PASS.
 
-After enum/HID/edge stimulus in `tb_cov_sniffer`, expect roughly **~96% DUT line** (`scripts/line_cov_summary.py`). Remaining `%00` lines are often port/decls or rare RX edge paths — triage via `cov/verilator/annotate/`.
+Recent DUT ballpark (`tb_cov_*`): **~99% line**, **~84% branch**, **~41% toggle**. Toggle is dominated by wide `mem[]` / `setup[]` / PHY flops — do not chase bit-complete toggle for midterm.
+
+Remaining `%00` in `enumeration_analysis` are mostly defensive/unreachable (`default`, `want_dtype` else) or `setup_count` reset when `pid` may not yet be DATA at `pkt_start`. No separate FSM coverage on 5.040 (`fsm_state`/`fsm_arc` need a newer Verilator); treat FSM quality as those case arms + BRDA.
 
 ---
 
