@@ -21,11 +21,12 @@ set_property -dict { PACKAGE_PIN F1 IOSTANDARD LVCMOS33 } [get_ports { led_b }]
 set_property -dict { PACKAGE_PIN D3 IOSTANDARD LVCMOS33 } [get_ports { led_g }]
 set_property -dict { PACKAGE_PIN F2 IOSTANDARD LVCMOS33 } [get_ports { led_r }]
 
-## SPI slave on Pmod JA (MCU optional for bring-up)
-set_property -dict { PACKAGE_PIN J2 IOSTANDARD LVCMOS33 } [get_ports { spi_sck }]
-set_property -dict { PACKAGE_PIN H2 IOSTANDARD LVCMOS33 } [get_ports { spi_mosi }]
-set_property -dict { PACKAGE_PIN H4 IOSTANDARD LVCMOS33 } [get_ports { spi_miso }]
-set_property -dict { PACKAGE_PIN F3 IOSTANDARD LVCMOS33 } [get_ports { spi_cs_n }]
+## SPI slave on DIP PIO40-43 (female-female jumper friendly; not Pmod JA)
+## PIO40=C5, PIO41=A2, PIO42=B2, PIO43=B1 (240 Ohm series R on Cmod → keep SPI ≤ few MHz)
+set_property -dict { PACKAGE_PIN C5 IOSTANDARD LVCMOS33 } [get_ports { spi_sck }]
+set_property -dict { PACKAGE_PIN A2 IOSTANDARD LVCMOS33 } [get_ports { spi_mosi }]
+set_property -dict { PACKAGE_PIN B2 IOSTANDARD LVCMOS33 } [get_ports { spi_miso }]
+set_property -dict { PACKAGE_PIN B1 IOSTANDARD LVCMOS33 } [get_ports { spi_cs_n }]
 
 ## Port taps + kill outs on PIO (breadboard / carrier adapter)
 ## pN_dp_tap / pN_dm_tap / pN_mux_en_n / pN_efuse_en
@@ -48,6 +49,10 @@ set_property -dict { PACKAGE_PIN N15 IOSTANDARD LVCMOS33 } [get_ports { p3_dp_ta
 set_property -dict { PACKAGE_PIN N14 IOSTANDARD LVCMOS33 } [get_ports { p3_dm_tap }]
 set_property -dict { PACKAGE_PIN M15 IOSTANDARD LVCMOS33 } [get_ports { p3_mux_en_n }]
 set_property -dict { PACKAGE_PIN M14 IOSTANDARD LVCMOS33 } [get_ports { p3_efuse_en }]
+
+## Digilent Cmod S7: bank 0 config voltage (quiets CFGBVS-1 DRC)
+set_property CFGBVS VCCO [current_design]
+set_property CONFIG_VOLTAGE 3.3 [current_design]
 
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]

@@ -77,15 +77,16 @@ module tb_main_selfstim;
         spi_sck  = 1'b0;
         spi_mosi = 1'b0;
         repeat (4) @(posedge dut.clk_48m);
+        // Mode 0: sample MISO before rising SCK (stable from prior falling update).
         for (i = 15; i >= 0; i = i - 1) begin
             spi_mosi = mosibits[i];
             repeat (2) @(posedge dut.clk_48m);
-            spi_sck = 1'b1;
-            repeat (3) @(posedge dut.clk_48m);
             if (i <= 7)
                 rx = {rx[6:0], spi_miso};
+            spi_sck = 1'b1;
+            repeat (3) @(posedge dut.clk_48m);
             spi_sck = 1'b0;
-            repeat (2) @(posedge dut.clk_48m);
+            repeat (4) @(posedge dut.clk_48m); // allow sclk_fall + MISO shift
         end
         spi_cs_n = 1'b1;
         spi_mosi = 1'b0;

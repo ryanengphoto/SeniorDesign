@@ -31,13 +31,31 @@ make sim-all
 
 ## Hardware bring-up procedure (no carrier)
 
-1. Build: `make -C FPGA build` (or Vivado batch `scripts/build.tcl`) with `VIVADO=…` if needed.
-2. Plug Cmod S7 USB (JTAG/UART). Power from USB is enough for this demo.
-3. Program `main_wrapper.bit` (Vivado Hardware Manager or a future `make prog`).
-4. After config (~20 ms): expect **LED0 on**, **RGB red** (active-low red), green during/after stim.
-5. Press **btn_clear** (D1): LED0 / red off. Telemetry (VID/PID/class) remains in registers.
-6. Press **btn_rst** (D2): MMCM re-lock / reset; sequence re-arms and repeats.
-7. Optional: SPI master on **Pmod JA** (`spi_sck/mosi/miso/cs_n`) — read `P0_STATUS` `0x11`, VID/PID `0x12`–`0x15`, classes `0x16`–`0x17`. Expect isolated+threat `0xC1` style status while killed.
+From a terminal on this PC (Vivado 2018.2 installed):
+
+```bat
+cd FPGA
+make build
+```
+
+Plug the **Cmod S7 USB** into this machine (Digilent JTAG). Then:
+
+```bat
+make prog
+```
+
+(`make prog` runs `scripts/prog.tcl`: Hardware Manager → program `senior_design.runs/impl_1/*.bit`. Override with `make prog BIT=path\to\file.bit`.)
+
+**Important (2018.2):** close the Vivado GUI Hardware Manager session (or disconnect the target) before `make prog`, or the batch job may not get the Digilent cable. You can also program from the GUI instead.
+
+Manual GUI alternate: Vivado → Open Hardware Manager → Auto Connect → Program Device → select `main_wrapper.bit`.
+
+### After programming — what you should see
+
+1. After config (~20 ms): expect **LED0 on**, **RGB red** (active-low red), green during/after stim.
+2. Press **btn_clear** (D1): LED0 / red off. Telemetry (VID/PID/class) remains in registers.
+3. Press **btn_rst** (D2): MMCM re-lock / reset; sequence re-arms and repeats.
+4. Optional: SPI master on **DIP PIO40–43** (`spi_sck/mosi/miso/cs_n`) — read `P0_STATUS` `0x11`, VID/PID `0x12`–`0x15`, classes `0x16`–`0x17`. Expect isolated+threat `0xC1` style status while killed.
 
 ### Pin cheat sheet (Digilent Cmod S7 bring-up XDC)
 
@@ -48,7 +66,7 @@ make sim-all
 | Clear button | `btn_clear` | D1 |
 | Kill LEDs | `led[3:0]` | E2, K1, J1, E1 |
 | RGB (active-low) | `led_r/g/b` | F2, D3, F1 |
-| SPI | `spi_*` | Pmod JA (J2, H2, H4, F3) |
+| SPI | `spi_sck/mosi/miso/cs_n` | PIO40–43 (C5, A2, B2, B1) |
 | Port0–3 taps / kill | `pN_dp_tap`, `pN_dm_tap`, `pN_mux_en_n`, `pN_efuse_en` | PIO headers |
 
 Carrier/gateway pin map in `Docs/fabric_slop.md` may differ; this file is the **stand-alone Cmod** map.
@@ -62,7 +80,7 @@ Possible on the same PC if Vivado sees the Digilent cable:
 3. Operator watches LEDs / presses buttons per procedure above.
 4. Optional: arm ILA, wait for trigger, export probe data for the agent to check.
 
-**Not in repo yet** (candidates to add): `scripts/prog.tcl`, `make prog`, optional `DEBUG_ILA=1` build. Regression: `make sim-all` (see above).
+Batch program: `make prog` (`scripts/prog.tcl`). Optional later: `DEBUG_ILA=1` debug bitstream. Regression: `make sim-all` (see above).
 
 **Limits:** Agent cannot usefully “watch” the GUI waveform live; batch ILA dump + file check is the automation path. Board must be connected to **this** machine’s USB.
 

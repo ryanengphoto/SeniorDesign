@@ -230,15 +230,16 @@ module tb_kill_manual_cross;
         sclk = 1'b0;
         mosi = 1'b0;
         repeat (4) @(posedge clk_48m);
+        // Mode 0: sample MISO before rising SCK (stable from prior falling update).
         for (i = 15; i >= 0; i = i - 1) begin
             mosi = mosibits[i];
             repeat (2) @(posedge clk_48m);
-            sclk = 1'b1;
-            repeat (3) @(posedge clk_48m);
             if (i <= 7)
                 rx = {rx[6:0], miso};
+            sclk = 1'b1;
+            repeat (3) @(posedge clk_48m);
             sclk = 1'b0;
-            repeat (2) @(posedge clk_48m);
+            repeat (4) @(posedge clk_48m); // allow sclk_fall + MISO shift
         end
         cs_n = 1'b1;
         mosi = 1'b0;

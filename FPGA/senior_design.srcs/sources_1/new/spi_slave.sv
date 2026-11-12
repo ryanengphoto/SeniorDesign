@@ -5,6 +5,11 @@
 // Purpose: SPI Mode 0 slave, 16-bit frames (Docs/fabric_slop.md §5).
 //          Write: {1, addr[6:0], data[7:0]}
 //          Read:  {0, addr[6:0], dummy} → MISO returns data on clocks 8..15
+//
+// Mode 0 (CPOL=0, CPHA=0): master samples MOSI/MISO on rising SCK.
+// Capture MOSI on rising; change MISO on falling so data is stable before
+// the next rising edge (STM32 hardware SPI). Updating MISO on rising caused
+// a 1-bit right shift on the wire (e.g. 0xC1 → 0x60).
 //////////////////////////////////////////////////////////////////////////////////
 
 module spi_slave (
@@ -38,10 +43,11 @@ module spi_slave (
     end
 
     wire sclk_rise = (sclk_sync[1:0] == 2'b01);
+    wire sclk_fall = (sclk_sync[1:0] == 2'b10);
     wire cs_active = ~cs_sync[1];
     wire mosi_s    = mosi_sync[1];
 
-    logic [4:0]  bit_cnt; // bits captured so far
+    logic [4:0]  bit_cnt; // bits captured so far (increments on rise)
     logic [15:0] shreg;
     logic        is_write;
     logic [7:0]  rd_byte;
@@ -71,32 +77,40 @@ module spi_slave (
                 shreg   <= 16'h0;
                 miso    <= 1'b0;
                 rd_idx  <= 3'd7;
-            end else if (sclk_rise) begin
-                shreg   <= {shreg[14:0], mosi_s};
-                bit_cnt <= bit_cnt + 5'd1;
+                is_write <= 1'b0;
+            end else begin
+                // Rising SCK: sample MOSI (Mode 0), advance bit count, writes, latch read byte
+                if (sclk_rise) begin
+                    shreg   <= {shreg[14:0], mosi_s};
+                    bit_cnt <= bit_cnt + 5'd1;
 
-                if (bit_cnt == 5'd7) begin
-                    is_write <= shreg[6];
-                    if (!shreg[6]) begin
-                        rd_byte <= reg_rdata;
-                        rd_idx  <= 3'd7;
+                    if (bit_cnt == 5'd7) begin
+                        // 8th bit completing — R/W is already in shreg[6] (frame bit15)
+                        is_write <= shreg[6];
+                        if (!shreg[6]) begin
+                            rd_byte <= reg_rdata;
+                            rd_idx  <= 3'd7;
+                        end
                     end
-                    miso <= 1'b0;
-                end else if (bit_cnt >= 5'd8 && bit_cnt <= 5'd15 && !is_write) begin
-                    miso   <= rd_byte[rd_idx];
-                    rd_idx <= rd_idx - 3'd1;
-                end else begin
-                    miso <= 1'b0;
+
+                    if (bit_cnt == 5'd15) begin
+                        if (shreg[14]) begin
+                            reg_we    <= 1'b1;
+                            reg_waddr <= shreg[13:7];
+                            reg_wdata <= {shreg[6:0], mosi_s};
+                        end
+                    end
                 end
 
-                if (bit_cnt == 5'd15) begin
-                    if (shreg[14]) begin
-                        reg_we    <= 1'b1;
-                        reg_waddr <= shreg[13:7];
-                        reg_wdata <= {shreg[6:0], mosi_s};
-                        miso      <= 1'b0;
+                // Falling SCK: present next MISO bit for the upcoming rising sample
+                // After 8th rise bit_cnt==8 → drive MSB before 9th rise; … through bit_cnt==15 → LSB
+                if (sclk_fall) begin
+                    if (!is_write && bit_cnt >= 5'd8 && bit_cnt <= 5'd15) begin
+                        miso   <= rd_byte[rd_idx];
+                        rd_idx <= rd_idx - 3'd1;
+                    end else begin
+                        miso <= 1'b0;
                     end
-                    // reads: keep miso as final data LSB through this edge
                 end
             end
         end
