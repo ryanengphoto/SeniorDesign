@@ -11,7 +11,8 @@
 - Carrier PCB / buses: [`Docs/Board_slop.md`](Board_slop.md)
 - FPGA SPI register map & threat codes: [`Docs/fabric_slop.md`](fabric_slop.md)
 - Software flowchart: [`Docs/BlockDiagrams/Rendered/code2flow_fTOuz1.png`](BlockDiagrams/Rendered/code2flow_fTOuz1.png)
-- Host GUI contract consumers: `GUI/` (`GUI/state.md`, `GUI/backend/src/protocol.py`)
+- Host GUI contract consumers: `GUI/` (`GUI/state.md`, `GUI/app/lib/protocol.dart`)
+- Implementation tree: [`Firmware/`](../Firmware/) (PlatformIO)
 
 ---
 
@@ -133,4 +134,4 @@ Exact JSON schemas live with the GUI protocol module; update both sides together
 1. Read this file, [`Docs/d_c_txt.md`](d_c_txt.md), and [`Docs/fabric_slop.md`](fabric_slop.md) before changing protocol or SPI usage.
 2. Prefer the **polling loop** until measurements show the ≤ 100 ms telemetry bound cannot be met.
 3. Keep magic numbers (baud, poll rate, I²C addresses, threat codes) in shared config / headers aligned with board and fabric docs.
-4. When firmware sources land in-repo, add a `Firmware/` tree and Make targets; until then this document is the firmware source of truth.
+4. Sources live in [`Firmware/`](../Firmware/) (PlatformIO, Black Pill). Spec here remains the behavioral SoT; keep `Firmware/include/protocol.h` and `GUI/app/lib/protocol.dart` aligned. Current tree is a UART stub (mock telemetry) until SPI/I²C land.

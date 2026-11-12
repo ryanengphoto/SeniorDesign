@@ -15,7 +15,7 @@ Senior Design project: a **hardware-secure 4-to-1 USB hub**. Custom PCB, FPGA in
 | `Docs/` | Specs, diagrams, reports | `Docs/AGENTS.md`; read area docs before implementing |
 | `FPGA/` | HDL, constraints, Vivado project | `FPGA/AGENTS.md` + **`FPGA/testing.md`** (sims/TBs) + **`Docs/fabric_slop.md`** + `Docs/d_c_txt.md`; `make -C FPGA build` / `sim` / `sim-all` / `synth` / `gui` |
 | `PCB/` | Schematics, layout, BOMs | `PCB/AGENTS.md` + **`Docs/Board_slop.md`** + `Docs/d_c_txt.md` |
-| Firmware (MCU) | STM32 management plane (sources TBD) | **`Docs/firmwmare_slop.md`** + `Docs/d_c_txt.md` + SPI map in `Docs/fabric_slop.md`; polling loop + UART to GUI |
+| `Firmware/` | STM32 management plane (PlatformIO / Black Pill) | `Firmware/AGENTS.md` + **`Docs/firmwmare_slop.md`** + `Docs/d_c_txt.md` + SPI map in `Docs/fabric_slop.md`; `make -C Firmware build` / `upload` |
 | `GUI/` | Operator console (FastAPI + React) | `GUI/AGENTS.md`, prototype status in `GUI/state.md`; protocol aligns with firmware/fabric docs |
 | `Website/` | Public project site (Astro) | `Website/AGENTS.md`, prototype status in `Website/state.md` |
 | `Agents/` | Agent-related project files | |
@@ -31,6 +31,7 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 | Path | Common commands |
 | --- | --- |
 | `FPGA/` | `make -C FPGA build`, `make -C FPGA sim`, `make -C FPGA sim-all`, `make -C FPGA synth`, `make -C FPGA gui`, `make -C FPGA clean` — details in `FPGA/testing.md` |
+| `Firmware/` | `make -C Firmware build`, `make -C Firmware upload`, `make -C Firmware clean` — PlatformIO; see `Firmware/README.md` |
 | `GUI/` | `make -C GUI dev`, `make -C GUI backend`, `make -C GUI frontend`, `make -C GUI stop` |
 | `Website/` | `cd Website && ./deploy-maverick.sh --build` (Maverick; pre-authorized for agents) |
 
@@ -74,6 +75,7 @@ Repo layout: `MAP.md`. Put new files in the mapped folders. Do not add top-level
 - `PCB/AGENTS.md` — board agent required reading
 - `FPGA/AGENTS.md` — Vivado project layout, RTL conventions; points at `FPGA/testing.md`
 - `FPGA/testing.md` — testbenches, sim commands, Make/env overrides, coverage
+- `Firmware/AGENTS.md` — PlatformIO Black Pill firmware; points at firmwmare / fabric docs
 - `GUI/AGENTS.md` — operator console commands and conventions
 - `Website/AGENTS.md` — Astro dev server
 - `Website/state.md` — what is built vs placeholder vs not built on the public site
