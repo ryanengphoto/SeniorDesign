@@ -134,4 +134,4 @@ Exact JSON schemas live with the GUI protocol module; update both sides together
 1. Read this file, [`Docs/d_c_txt.md`](d_c_txt.md), and [`Docs/fabric_slop.md`](fabric_slop.md) before changing protocol or SPI usage.
 2. Prefer the **polling loop** until measurements show the ≤ 100 ms telemetry bound cannot be met.
 3. Keep magic numbers (baud, poll rate, I²C addresses, threat codes) in shared config / headers aligned with board and fabric docs.
-4. Sources live in [`Firmware/`](../Firmware/) (PlatformIO, Black Pill). Spec here remains the behavioral SoT; keep `Firmware/include/protocol.h` and `GUI/app/lib/protocol.dart` aligned. Current tree is a UART stub (mock telemetry) until SPI/I²C land.
+4. Sources live in [`Firmware/`](../Firmware/) (PlatformIO, Black Pill). Spec here remains the behavioral SoT; keep `Firmware/include/protocol.h` and `GUI/app/lib/protocol.dart` aligned. Default env has SPI bring-up (`fpga_bridge`) for Cmod Pmod JA; `vbus`/`current` and non-port0 paths may still be mock — see `Firmware/README.md`.
