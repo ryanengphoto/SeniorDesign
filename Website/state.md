@@ -1,7 +1,7 @@
 # Website prototype state
 
-**Last updated:** 2026-09-17  
-**Status:** Public site for assignment — PDF linked, team/faculty from D&C cover, architecture diagrams hidden.  
+**Last updated:** 2026-11-13  
+**Status:** Public site for assignment — midterm featured on Documents; D&C under Other; team/faculty from D&C cover; architecture diagrams hidden.  
 **Live:** https://maverick.eecs.ucf.edu/seniordesign/fa2026sp2027/g19/
 
 ---
@@ -14,7 +14,8 @@
 - [x] Remove “Replace the placeholders…” helper text from team page
 - [ ] Confirm advisor names/titles with faculty list
 - [x] Run `npm run build` and fix any errors; smoke-test `npm run preview`
-- [ ] Add `public/docs/divide-and-conquer.pdf` (Divide and Conquer / project proposal)
+- [x] Add `public/docs/divide-and-conquer.pdf` (Divide and Conquer / project proposal)
+- [x] Add `public/docs/midterm-milestone.pdf` (Midterm milestone report)
 - [x] Deploy to Maverick (`./deploy-maverick.sh`) and record URL in `README.md` / `state.md`
 - [ ] Review home copy against **actual** demo scope; soften claims if hardware is not ready
 
@@ -36,7 +37,8 @@
 ### Verification still open
 
 - [ ] Deployed URL loads for committee
-- [ ] Divide and Conquer PDF downloads from Documents section
+- [x] Divide and Conquer PDF downloads from Documents section
+- [x] Midterm milestone PDF downloads from Documents section
 
 ---
 
@@ -49,7 +51,7 @@
 | Shared layout, nav, theme | **Built** |
 | Scroll animations | **Built** |
 | Block diagrams on home | **Built** — `pcb_bd_1.jpg`, `fabric_bd.jpg`, `software.jpg` |
-| Documents section | **Built** — link for Divide and Conquer PDF; file not added yet |
+| Documents section | **Built** — midterm featured at `/documents/`; D&C under Other at `/documents/divide-and-conquer/` |
 | `README.md` | **Updated** |
 | Production deploy | **Done** — Maverick `public_html` (2026-09-17) |
 | Team photos | **Not done** (initials avatars) |
@@ -107,7 +109,7 @@ Do not merge these into one app. The website explains the project; the GUI opera
 | Scroll / hero animations | `src/scripts/animations.ts` |
 | Favicon | `public/favicon.svg`, `public/favicon.ico` |
 | Block diagrams | `Docs/BlockDiagrams/Rendered/{pcb_bd_1,fabric_bd,software}.jpg` via Astro import |
-| Proposal PDF slot | `public/docs/divide-and-conquer.pdf` (add file; see `public/docs/README.md`) |
+| Official PDFs | `public/docs/{divide-and-conquer,midterm-milestone}.pdf` via sync (see `public/docs/README.md`) |
 
 Copy is **inline arrays** in page frontmatter — not a CMS or content collection.
 
@@ -120,7 +122,7 @@ Copy is **inline arrays** in page frontmatter — not a CMS or content collectio
 | Item | Location | Notes |
 | --- | --- | --- |
 | Advisor short names | `team.astro` | Confirm full titles with faculty |
-| Proposal PDF | `public/docs/` | Drop-in path ready; file not present |
+| — | — | Official PDFs present (D&C + midterm) |
 | Team photos | `team.astro` | Initials only |
 
 ### Aspirational copy (target system, not built hardware)
@@ -162,7 +164,8 @@ Home page security features and specs follow `Docs/init_specs.md` / `Docs/d_c_tx
 - [x] `README.md` describes this project
 - [x] `npm run build` succeeds (2026-09-17)
 - [ ] Deployed URL loads for committee
-- [ ] Divide and Conquer PDF present and downloadable
+- [x] Divide and Conquer PDF present and downloadable
+- [x] Midterm milestone PDF present and downloadable
 
 ---
 

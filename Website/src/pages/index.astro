@@ -215,25 +215,52 @@ const base = import.meta.env.BASE_URL;
           </p>
         </div>
 
-        <a
-          data-animate="fade-up"
-          href={`${base}documents/`}
-          class="mt-12 flex flex-col gap-3 rounded-xl border border-border bg-surface p-6 transition-colors hover:border-accent/40 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div>
-            <h3 class="text-lg font-semibold">
-              Divide and Conquer Assignment
-            </h3>
-            <p class="mt-1 text-sm leading-relaxed text-muted">
-              Project proposal (SD1) — view on site or download the PDF.
-            </p>
-          </div>
-          <span
-            class="shrink-0 rounded-lg border border-border px-4 py-2 text-sm font-medium text-accent"
+        <div class="mt-12 grid gap-6">
+          <a
+            data-animate="fade-up"
+            href={`${base}documents/`}
+            class="flex flex-col gap-3 rounded-xl border-2 border-accent/50 bg-surface p-6 transition-colors hover:border-accent sm:flex-row sm:items-center sm:justify-between"
           >
-            View document &rarr;
-          </span>
-        </a>
+            <div>
+              <p class="font-mono text-xs tracking-widest text-accent uppercase">
+                Featured
+              </p>
+              <h3 class="mt-2 text-lg font-semibold">
+                Midterm Milestone Report
+              </h3>
+              <p class="mt-1 text-sm leading-relaxed text-muted">
+                Midterm milestone (SD1) — view on site or download the PDF.
+              </p>
+            </div>
+            <span
+              class="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg"
+            >
+              View document &rarr;
+            </span>
+          </a>
+
+          <div data-animate="fade-up">
+            <h3 class="text-sm font-semibold uppercase tracking-wide text-muted">
+              Other
+            </h3>
+            <a
+              href={`${base}documents/divide-and-conquer/`}
+              class="mt-3 flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 transition-colors hover:border-accent/40 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div>
+                <h4 class="font-semibold">Divide and Conquer Assignment</h4>
+                <p class="mt-1 text-sm leading-relaxed text-muted">
+                  Project proposal (SD1) — view on site or download the PDF.
+                </p>
+              </div>
+              <span
+                class="shrink-0 rounded-lg border border-border px-4 py-2 text-sm font-medium text-accent"
+              >
+                View document &rarr;
+              </span>
+            </a>
+          </div>
+        </div>
       </div>
     </section>
   </main>

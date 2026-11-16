@@ -1,0 +1,14 @@
+Upstream repository: https://github.com/tinyfpga/TinyFPGA-Bootloader
+Upstream commit:     97f6353540bf7c0d27f5612f202b48f41da75299
+License:             Apache-2.0 (see LICENSE)
+
+Files copied from common/:
+  usb_fs_rx.v       **Modified**: `timescale for Vivado XSim
+  usb_fs_tx.v       **Modified**: `timescale for Vivado XSim
+  strobe.v          (includes dflip; required by RX/TX CDC)
+                    **Modified**: `timescale + ANSI #() params for Vivado xvlog
+  usb_reset_det.v
+
+Not copied (device/bootloader path, not needed for sniff RX):
+  usb_fs_pe.v, usb_fs_*_pe.v, usb_fs_*_arb.v, usb_fs_tx_mux.v,
+  tinyfpga_bootloader.v, usb_serial_ctrl_ep.v, usb_spi_bridge_ep.v, …

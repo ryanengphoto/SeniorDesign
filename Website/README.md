@@ -52,11 +52,16 @@ cd Website
 
 (`--build` is recommended so asset URLs stay correct with Astro `base`.)
 
-### Adding / updating the proposal PDF
+### Adding / updating official PDFs
 
-Source of truth: `Docs/Official_SD_docs/D_and_C_SD1_v2.pdf`
+Sources of truth live under `Docs/Official_SD_docs/`:
 
-Replace that file, then redeploy — the script syncs it into `public/docs/divide-and-conquer.pdf` and rebuilds if the PDF changed:
+| Source | Public path | Page |
+| --- | --- | --- |
+| `grp_19_midterm_milestone.pdf` | `public/docs/midterm-milestone.pdf` | `/documents/` (featured) |
+| `D_and_C_SD1_v2.pdf` | `public/docs/divide-and-conquer.pdf` | `/documents/divide-and-conquer/` |
+
+Replace the source file, then redeploy — the script syncs into `public/docs/` and rebuilds if a PDF changed:
 
 ```bash
 ./deploy-maverick.sh
@@ -64,7 +69,7 @@ Replace that file, then redeploy — the script syncs it into `public/docs/divid
 ./deploy-maverick.sh --build
 ```
 
-Linked from `/documents/`. See [`public/docs/README.md`](public/docs/README.md).
+See [`public/docs/README.md`](public/docs/README.md).
 
 ### Deploy notes
 

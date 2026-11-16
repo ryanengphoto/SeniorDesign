@@ -15,6 +15,7 @@ SRC_DIR="$REPO/Docs/Official_SD_docs"
 # source_relative_to_Official_SD_docs|dest_name_in_public/docs
 DOC_MAP=(
   "D_and_C_SD1_v2.pdf|divide-and-conquer.pdf"
+  "grp_19_midterm_milestone.pdf|midterm-milestone.pdf"
 )
 
 mkdir -p "$PUBLIC_DOCS"
