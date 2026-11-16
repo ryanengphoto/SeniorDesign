@@ -11,6 +11,11 @@ module enumeration_analysis (
     input  logic        clk,
     input  logic        rst,
 
+    // From usb_line_attach: presence is line J, not packet activity.
+    input  logic        line_attached,
+    // 1-cycle: device unplugged (or long SE0) — drop latched descriptors.
+    input  logic        clear_telemetry,
+
     input  logic        pkt_start,
     input  logic        pkt_end,
     input  logic [3:0]  pid,
@@ -28,6 +33,8 @@ module enumeration_analysis (
     output logic        intf_class_valid,
     output logic        attached
 );
+
+    assign attached = line_attached;
 
     localparam [3:0] PID_SETUP = 4'b1101;
     localparam [3:0] PID_DATA0 = 4'b0011;
@@ -63,7 +70,7 @@ module enumeration_analysis (
     assign dtype = mem[scan_i + 6'd1];
 
     always_ff @(posedge clk) begin
-        if (rst) begin
+        if (rst || clear_telemetry) begin
             state             <= ST_IDLE;
             setup_count       <= 4'd0;
             want_dtype        <= 8'd0;
@@ -77,11 +84,7 @@ module enumeration_analysis (
             intf_class        <= 8'd0;
             device_desc_valid <= 1'b0;
             intf_class_valid  <= 1'b0;
-            attached          <= 1'b0;
         end else begin
-            if (pkt_start || data_valid || pkt_end)
-                attached <= 1'b1;
-
             // New SETUP on EP0 aborts any in-flight descriptor collection
             if (pkt_end && crc_ok && (pid == PID_SETUP) && (endp == 4'h0)) begin
                 state       <= ST_SETUP_DATA;
@@ -181,6 +184,7 @@ module enumeration_analysis (
     enumeration_analysis_sva u_enum_sva (
         .clk               (clk),
         .rst               (rst),
+        .clear_telemetry   (clear_telemetry),
         .state             (state),
         .attached          (attached),
         .device_desc_valid (device_desc_valid),

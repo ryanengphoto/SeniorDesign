@@ -17,6 +17,7 @@ foreach f [list \
   [file join $src usb_packet_frontend.sv] \
   [file join $src isolation_controller.sv] \
   [file join $src enumeration_analysis.sv] \
+  [file join $src usb_line_attach.sv] \
   [file join $src sniffer_block.sv] \
   [file join $src sniffer_wrapper.sv] \
   [file join $src register_file.sv] \
@@ -44,6 +45,7 @@ foreach f [list \
 foreach f [list \
   [file join $sim tb_sniffer.sv] \
   [file join $sim tb_enumeration_analysis.sv] \
+  [file join $sim tb_usb_line_attach.sv] \
   [file join $sim tb_kill_e2e.sv] \
   [file join $sim tb_enum_e2e.sv] \
   [file join $sim tb_demo_threat.sv] \

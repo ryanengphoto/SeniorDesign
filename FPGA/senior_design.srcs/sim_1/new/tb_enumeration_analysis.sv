@@ -32,6 +32,8 @@ module tb_enumeration_analysis;
 
     enumeration_analysis dut (
         .clk(clk), .rst(rst),
+        .line_attached(1'b1),
+        .clear_telemetry(1'b0),
         .pkt_start(pkt_start), .pkt_end(pkt_end),
         .pid(pid), .addr(addr), .endp(endp),
         .data_valid(data_valid), .data(data), .crc_ok(crc_ok),

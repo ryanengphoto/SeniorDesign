@@ -27,11 +27,14 @@ SCRIPTS     := scripts
 SIM_TOP  ?=
 SIM_TIME ?=
 COV      ?= 0
+# 1 = boot HID selfstim demo (default). 0 = live USB taps only (no dummy data).
+ENABLE_SELFSTIM ?= 1
 
 # Regression tops (must match scripts/sim_all.tcl)
 SIM_ALL_TOPS := \
 	tb_sniffer \
 	tb_enumeration_analysis \
+	tb_usb_line_attach \
 	tb_kill_e2e \
 	tb_enum_e2e \
 	tb_demo_threat \
@@ -42,7 +45,7 @@ SIM_ALL_TOPS := \
 	tb_cov_isolation \
 	tb_cov_sniffer
 
-.PHONY: help build synth sim sim-all cov-verilator gui clean check-vivado check-verilator
+.PHONY: help build synth sim sim-all cov-verilator prog gui clean check-vivado check-verilator
 
 .DEFAULT_GOAL := help
 
@@ -50,6 +53,8 @@ help:
 	@echo "FPGA Vivado targets (FPGA/)"
 	@echo ""
 	@echo "  make build      Synth + implement + write bitstream"
+	@echo "  make build ENABLE_SELFSTIM=0   Live-tap bit (no boot dummy HID)"
+	@echo "  make prog       Program Cmod S7 with latest impl .bit (board plugged in)"
 	@echo "  make synth      Synthesis only"
 	@echo "  make sim        Behavioral sim (XSim); needs a testbench as sim top"
 	@echo "  make sim-all       Run full sniffer TB regression (scripts/sim_all.tcl)"
@@ -60,6 +65,8 @@ help:
 	@echo "Overrides:"
 	@echo "  VIVADO=...          Path to vivado / vivado.bat if not on PATH"
 	@echo "  VIVADO_JOBS=N       Parallel jobs for runs (default $(VIVADO_JOBS))"
+	@echo "  BIT=path/to.bit     Override bitstream for make prog"
+	@echo "  ENABLE_SELFSTIM=0|1 Board generic (default 1). 0 = no dummy selfstim"
 	@echo "  SIM_TOP=module      Override sim_1 top module"
 	@echo "  SIM_TIME=10us       Run for a fixed time instead of 'run all'"
 	@echo "  COV=1               Try native XSim code coverage (needs Vivado ~2020.1+)"
@@ -67,7 +74,7 @@ help:
 	@echo "  MSYS_BASH=...       bash for cov-verilator (default C:/msys64/usr/bin/bash.exe)"
 	@echo ""
 	@echo "sim-all tops: $(SIM_ALL_TOPS)"
-	@echo "See testing.md for TB inventory + Verilator coverage details."
+	@echo "See testing.md / bringup.md for TB inventory and board steps."
 
 # Portable existence check: prefer full path; else rely on PATH via -version.
 check-vivado:
@@ -86,9 +93,17 @@ endif
 
 build: check-vivado
 ifeq ($(OS),Windows_NT)
-	set VIVADO_JOBS=$(VIVADO_JOBS)&& $(VIVADO) -mode batch -source $(SCRIPTS)/build.tcl -nojournal -nolog
+	set VIVADO_JOBS=$(VIVADO_JOBS)&& set ENABLE_SELFSTIM=$(ENABLE_SELFSTIM)&& $(VIVADO) -mode batch -source $(SCRIPTS)/build.tcl -nojournal -nolog
 else
-	VIVADO_JOBS=$(VIVADO_JOBS) $(VIVADO) -mode batch -source $(SCRIPTS)/build.tcl -nojournal -nolog
+	VIVADO_JOBS=$(VIVADO_JOBS) ENABLE_SELFSTIM=$(ENABLE_SELFSTIM) $(VIVADO) -mode batch -source $(SCRIPTS)/build.tcl -nojournal -nolog
+endif
+
+# Program Digilent Cmod S7 over USB JTAG (requires board plugged in + prior make build).
+prog: check-vivado
+ifeq ($(OS),Windows_NT)
+	set BIT=$(BIT)&& $(VIVADO) -mode batch -source $(SCRIPTS)/prog.tcl -nojournal -nolog
+else
+	BIT="$(BIT)" $(VIVADO) -mode batch -source $(SCRIPTS)/prog.tcl -nojournal -nolog
 endif
 
 synth: check-vivado

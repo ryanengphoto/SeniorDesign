@@ -11,7 +11,9 @@
 `include "defines.svh"
 
 module sniffer_block #(
-    parameter bit POLICY_STORAGE_ONLY = 1'b1
+    parameter bit POLICY_STORAGE_ONLY = 1'b1,
+    // usb_line_attach: 0=auto FS/LS from J, 1=force FS, 2=force LS (not HS)
+    parameter int SPEED_MODE = 0
 ) (
     input  logic       clk_48m,
     input  logic       rst,
@@ -46,10 +48,27 @@ module sniffer_block #(
     logic [10:0] frame_num;
     logic        crc_fault;
     logic        attached;
+    logic        enum_attached; // mirror of line_attached inside enum (for SVA)
+    logic        disconnect_stb;
+    logic        speed_is_ls;
+    logic        speed_valid;
     logic        intf_class_valid_d;
     logic        hid_threat_pulse;
     logic        threat_pulse;
     logic [3:0]  threat_code_in;
+
+    usb_line_attach #(
+        .SPEED_MODE(SPEED_MODE)
+    ) u_attach (
+        .clk            (clk_48m),
+        .rst            (rst),
+        .dp             (dp),
+        .dm             (dm),
+        .attached       (attached),
+        .speed_is_ls    (speed_is_ls),
+        .speed_valid    (speed_valid),
+        .disconnect_stb (disconnect_stb)
+    );
 
     usb_packet_frontend u_fe (
         .clk_48m   (clk_48m),
@@ -71,6 +90,8 @@ module sniffer_block #(
     enumeration_analysis u_enum (
         .clk              (clk_48m),
         .rst              (rst),
+        .line_attached    (attached),
+        .clear_telemetry  (disconnect_stb),
         .pkt_start        (pkt_start),
         .pkt_end          (pkt_end),
         .pid              (pid),
@@ -85,7 +106,7 @@ module sniffer_block #(
         .intf_class       (intf_class),
         .device_desc_valid(device_desc_valid),
         .intf_class_valid (intf_class_valid),
-        .attached         (attached)
+        .attached         (enum_attached)
     );
 
     // Rising edge of latched HID interface class on a storage-only port.

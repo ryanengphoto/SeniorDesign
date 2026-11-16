@@ -16,6 +16,17 @@ Bitstream (after `make build`):
 
 `senior_design.runs/impl_1/main_wrapper.bit`
 
+### Live USB tap bit (no dummy selfstim)
+
+To prove breakout / Rubber Ducky traffic is real (cold start must **not** show VID `0x1234` / kill `0x1`):
+
+```bat
+make build ENABLE_SELFSTIM=0
+make prog
+```
+
+Generic `ENABLE_SELFSTIM=0` leaves port0–3 on the PIO taps only. Success: idle SPI/UART shows disconnected / zeros until a real FS device enumerates; then VID/PID/class match that device (HID → threat `0x1` on storage-only policy). Rebuild with default `ENABLE_SELFSTIM=1` to restore the LED demo bit.
+
 ## Pre-board simulation
 
 Gate before programming the Cmod: **`make sim-all`** must be green.

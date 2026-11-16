@@ -8,6 +8,7 @@
 module enumeration_analysis_sva (
     input logic       clk,
     input logic       rst,
+    input logic       clear_telemetry,
     input logic [2:0] state,
     input logic       attached,
     input logic       device_desc_valid,
@@ -37,17 +38,17 @@ module enumeration_analysis_sva (
                 if (!state_ok)
                     $error("enumeration_analysis SVA: illegal FSM state %0d", state);
 
-                // Valid/attached sticky until rst (values may update on re-enum)
-                if (attached_d && !attached)
-                    $error("enumeration_analysis SVA: attached cleared without rst");
-                if (ddv_d && !device_desc_valid)
-                    $error("enumeration_analysis SVA: device_desc_valid cleared without rst");
-                if (icv_d && !intf_class_valid)
-                    $error("enumeration_analysis SVA: intf_class_valid cleared without rst");
+                // Descriptors sticky until rst or line disconnect (clear_telemetry)
+                if (!clear_telemetry) begin
+                    if (ddv_d && !device_desc_valid)
+                        $error("enumeration_analysis SVA: device_desc_valid cleared without rst/disconnect");
+                    if (icv_d && !intf_class_valid)
+                        $error("enumeration_analysis SVA: intf_class_valid cleared without rst/disconnect");
+                end
             end
 
             sample_valid <= 1'b1;
-            attached_d   <= attached;
+            attached_d   <= attached; // line-backed; not sticky-checked
             ddv_d        <= device_desc_valid;
             icv_d        <= intf_class_valid;
         end

@@ -14,7 +14,11 @@ module main_wrapper #(
     // Sim: skip MMCM (drive clk_12m at 48 MHz in the TB). Board: leave 0.
     parameter bit SIM_CLK_BYPASS    = 1'b0,
     // Cycles after lock before auto HID self-stim (~20 ms @ 48 MHz on board).
-    parameter int BOOT_STIM_CYCLES  = 1_000_000
+    parameter int BOOT_STIM_CYCLES  = 1_000_000,
+    // 1 = boot HID selfstim demo on port0 (LEDs / midterm). 0 = live taps only
+    // (no dummy VID/PID/kill) — use for USB breakout / Rubber Ducky bring-up:
+    //   make -C FPGA build ENABLE_SELFSTIM=0
+    parameter bit ENABLE_SELFSTIM   = 1'b1
 ) (
     input  logic clk_12m,
     input  logic btn_rst,
@@ -123,7 +127,7 @@ module main_wrapper #(
             stim_start <= 1'b0;
         end else begin
             stim_start <= 1'b0;
-            if (!boot_fired) begin
+            if (ENABLE_SELFSTIM && !boot_fired) begin
                 if (boot_cnt >= 24'(BOOT_STIM_CYCLES)) begin
                     boot_fired <= 1'b1;
                     stim_start <= 1'b1;
@@ -136,7 +140,7 @@ module main_wrapper #(
     usb_demo_selfstim u_selfstim (
         .clk_48m(clk_48m),
         .rst    (rst),
-        .start  (stim_start),
+        .start  (ENABLE_SELFSTIM ? stim_start : 1'b0),
         .busy   (stim_busy),
         .done   (stim_done),
         .tx_oe  (stim_oe),
@@ -144,8 +148,9 @@ module main_wrapper #(
         .tx_dn  (stim_dn)
     );
 
-    assign dp[0] = stim_oe ? stim_dp : p0_dp_tap;
-    assign dm[0] = stim_oe ? stim_dn : p0_dm_tap;
+    // Live-tap build never muxes selfstim onto port0 (even if stim_oe glitches).
+    assign dp[0] = (ENABLE_SELFSTIM && stim_oe) ? stim_dp : p0_dp_tap;
+    assign dm[0] = (ENABLE_SELFSTIM && stim_oe) ? stim_dn : p0_dm_tap;
     assign dp[3:1] = {p3_dp_tap, p2_dp_tap, p1_dp_tap};
     assign dm[3:1] = {p3_dm_tap, p2_dm_tap, p1_dm_tap};
 
@@ -165,7 +170,8 @@ module main_wrapper #(
 
     assign led   = kill;
     assign led_r = ~(|kill);                 // red = any kill (active-low)
-    assign led_g = ~(stim_busy || stim_done); // green while demo stim runs/done
+    // Demo bit: green while stim runs/done. Live-tap bit: green idle (no stim).
+    assign led_g = ENABLE_SELFSTIM ? ~(stim_busy || stim_done) : 1'b0;
     assign led_b = 1'b1;
 
     sniffer_wrapper u_sniffers (
