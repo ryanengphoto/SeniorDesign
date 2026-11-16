@@ -27,10 +27,13 @@ class SerialDevice implements HubDevice {
     this.baudRate = 115200,
     this.telemetryTimeout = const Duration(seconds: 3),
     this.initialOpenGrace = const Duration(seconds: 5),
-  }) : portPath = normalizePortPath(portPath);
+  }) : _portPath = normalizePortPath(portPath);
 
-  final String portPath;
+  String _portPath;
   final int baudRate;
+
+  /// Current UART path (may change via [setSerialPort] without app restart).
+  String get portPath => _portPath;
 
   /// No valid frame within this window → treat link as dead (hub silent / power).
   final Duration telemetryTimeout;
@@ -41,6 +44,11 @@ class SerialDevice implements HubDevice {
   /// Windows COM10+ needs `\\.\COMn`; Linux/WSL paths pass through.
   static String normalizePortPath(String path) {
     final trimmed = path.trim();
+    final prefixed =
+        RegExp(r'^\\\\\.\\(COM\d+)$', caseSensitive: false).firstMatch(trimmed);
+    if (prefixed != null) {
+      return normalizePortPath(prefixed.group(1)!);
+    }
     final match =
         RegExp(r'^COM(\d+)$', caseSensitive: false).firstMatch(trimmed);
     if (match == null) {
@@ -51,6 +59,17 @@ class SerialDevice implements HubDevice {
       return '\\\\.\\COM$n';
     }
     return 'COM$n';
+  }
+
+  /// Short label for UI (e.g. `\\.\COM10` → `COM10`).
+  static String displayPortLabel(String path) {
+    final normalized = normalizePortPath(path);
+    final match = RegExp(r'^\\\\\.\\(COM\d+)$', caseSensitive: false)
+        .firstMatch(normalized);
+    if (match != null) {
+      return match.group(1)!.toUpperCase();
+    }
+    return normalized;
   }
 
   SerialPort? _port;
@@ -97,16 +116,72 @@ class SerialDevice implements HubDevice {
   }
 
   @override
-  String? get detail => portPath;
+  String? get detail =>
+      portPath.isEmpty ? 'No port selected' : displayPortLabel(portPath);
 
   @override
   String? get errorMessage => _errorMessage;
+
+  bool get _hasPort => portPath.isNotEmpty;
 
   @override
   bool get supportsReconnect => true;
 
   @override
+  bool get supportsPortSelect => true;
+
+  @override
   bool get isPolled => false;
+
+  /// Enumerate host serial ports (COM / ttyUSB / …). Safe if libserialport fails.
+  static List<String> enumeratePorts() {
+    try {
+      final ports = SerialPort.availablePorts;
+      final normalized = ports
+          .map(normalizePortPath)
+          .where((p) => p.isNotEmpty)
+          .toSet()
+          .toList(growable: false);
+      normalized.sort();
+      return normalized;
+    } on Object {
+      return const [];
+    }
+  }
+
+  @override
+  List<String> listSerialPorts() {
+    final available = enumeratePorts();
+    if (available.contains(portPath) || portPath.isEmpty) {
+      return available;
+    }
+    // Keep the configured path visible even if temporarily missing.
+    return [...available, portPath]..sort();
+  }
+
+  @override
+  void setSerialPort(String nextPath) {
+    if (_disposed) {
+      return;
+    }
+    final normalized = normalizePortPath(nextPath);
+    if (normalized.isEmpty) {
+      return;
+    }
+    if (normalized == _portPath && _transportOpen && !_error) {
+      return;
+    }
+    _portPath = normalized;
+    _latest = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnecting = true;
+    _error = true;
+    _errorMessage = 'Switching to $normalized…';
+    _notifyStatus();
+    _closeTransportOnly();
+    _openTransport(resetBackoff: true);
+  }
 
   @override
   Stream<TelemetryFrame> get frames => _framesController.stream;
@@ -137,6 +212,10 @@ class SerialDevice implements HubDevice {
     if (_disposed) {
       return;
     }
+    if (!_hasPort) {
+      _awaitPortSelection();
+      return;
+    }
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnecting = true;
@@ -147,8 +226,28 @@ class SerialDevice implements HubDevice {
     _openTransport(resetBackoff: true);
   }
 
+  /// Idle until the operator picks a COM/tty in the UI.
+  void _awaitPortSelection() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _closeTransportOnly();
+    _lineBuf.clear();
+    _usingIoFallback = false;
+    _error = false;
+    _reconnecting = false;
+    _errorMessage = 'Select a COM port';
+    _lastFrameAt = null;
+    _openedAt = null;
+    _latest = null;
+    _notifyStatus();
+  }
+
   void _openTransport({required bool resetBackoff}) {
     if (_disposed) {
+      return;
+    }
+    if (!_hasPort) {
+      _awaitPortSelection();
       return;
     }
     if (resetBackoff) {
@@ -555,6 +654,10 @@ class SerialDevice implements HubDevice {
 
   void _scheduleReconnect() {
     if (_disposed) {
+      return;
+    }
+    if (!_hasPort) {
+      _awaitPortSelection();
       return;
     }
     _reconnectTimer?.cancel();

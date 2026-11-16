@@ -7,14 +7,12 @@ import 'dart:convert';
 
 enum PortState {
   disconnected,
-  enumerating,
   authorized,
   quarantined,
   manualBlocked;
 
   String get wireName => switch (this) {
         PortState.disconnected => 'DISCONNECTED',
-        PortState.enumerating => 'ENUMERATING',
         PortState.authorized => 'AUTHORIZED',
         PortState.quarantined => 'QUARANTINED',
         PortState.manualBlocked => 'MANUAL_BLOCKED',
@@ -233,6 +231,7 @@ class TelemetryFrame {
 
 class SecurityEvent {
   const SecurityEvent({
+    this.id,
     required this.at,
     required this.port,
     required this.threatCode,
@@ -241,6 +240,9 @@ class SecurityEvent {
     required this.message,
   });
 
+  /// Drift row id when persisted; null for not-yet-written events.
+  final int? id;
+
   /// Wall-clock time when the console recorded the event (not MCU session ms).
   final DateTime at;
   final int port;
@@ -248,6 +250,18 @@ class SecurityEvent {
   final String threatName;
   final PortState state;
   final String message;
+
+  SecurityEvent copyWith({int? id}) {
+    return SecurityEvent(
+      id: id ?? this.id,
+      at: at,
+      port: port,
+      threatCode: threatCode,
+      threatName: threatName,
+      state: state,
+      message: message,
+    );
+  }
 
   /// `YYYY-MM-DD HH:MM:SS` for the event log UI.
   String get formattedAt {

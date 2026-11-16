@@ -7,7 +7,7 @@ tested over a socat PTY pair (or dual FTDI) without firmware.
 
 Modes:
   (default) Timed demo like MockDevice (port 1 → burst ~15s)
-  --interactive / -i   REPL: you trigger plug/enum/burst/isolate yourself
+  --interactive / -i   REPL: you trigger plug/burst/isolate yourself
 
 Usage (pick ONE host path — both stay supported):
 
@@ -51,14 +51,13 @@ Commands (port is 0–3):
   script on|off        timed demo on/off (off in -i by default)
   plug <p>             connect flash-like device (AUTHORIZED)
   unplug <p>           DISCONNECTED
-  enum <p>             ENUMERATING
   auth <p>             AUTHORIZED keyboard
   burst <p>            QUARANTINED + KEYSTROKE_BURST (2)
   hid <p>              QUARANTINED + UNAUTHORIZED_HID (1)
   threat <p> <code>    set threat_code 0–7 (quarantine if code≠0)
   isolate <p>          MANUAL_BLOCKED + threat 7 (like GUI Isolate)
   restore <p>          AUTHORIZED keyboard again
-  clear <p>            clear threat; stay isolated if blocked
+  clear <p>            clear threat latch only; stay cut off until restore
   reset                initial demo state (port0 flash, others empty)
   quit / exit          stop sim
 """.strip()
@@ -120,29 +119,25 @@ def advance_script(state: SimState) -> None:
     if p1.manually_blocked or p1.state == "QUARANTINED":
         return
     if state.script_stage == 0 and elapsed_s >= 5:
-        p1.state = "ENUMERATING"
-        p1.vbus_mv = 5020
-        p1.current_ma = 15
-        state.script_stage = 1
-    elif state.script_stage == 1 and elapsed_s >= 8:
         p1.state = "AUTHORIZED"
+        p1.vbus_mv = 5020
         p1.vid = "0x046D"
         p1.pid = "0xC31C"
         p1.dev_class = "0x00"
         p1.int_class = "0x03"
         p1.current_ma = 55
-        state.script_stage = 2
-    elif state.script_stage == 2 and elapsed_s >= 15:
+        state.script_stage = 1
+    elif state.script_stage == 1 and elapsed_s >= 15:
         p1.state = "QUARANTINED"
         p1.threat_code = 2  # KEYSTROKE_BURST
         p1.vbus_mv = 0
         p1.current_ma = 0
-        state.script_stage = 3
+        state.script_stage = 2
 
 
 def jitter(state: SimState) -> None:
     for p in state.ports:
-        if p.vbus_mv > 0 and p.state in ("AUTHORIZED", "ENUMERATING"):
+        if p.vbus_mv > 0 and p.state == "AUTHORIZED":
             p.current_ma = max(0, p.current_ma + random.randint(-3, 3))
 
 
@@ -213,12 +208,9 @@ def _clear(p: Port, port_id: int) -> None:
         return
     prev = p.threat_code
     p.threat_code = 0
+    # Latch clear only — stay cut off until restore_port.
     if p.manually_blocked:
         p.state = "MANUAL_BLOCKED"
-    else:
-        p.state = "AUTHORIZED"
-        p.vbus_mv = 5020
-        p.current_ma = 20 + random.randint(0, 40)
     print(f"mcu_sim: clear_fault port {port_id} (was {prev})", flush=True)
 
 
@@ -292,7 +284,6 @@ def run_repl_line(state: SimState, line: str) -> bool:
     if cmd in (
         "plug",
         "unplug",
-        "enum",
         "auth",
         "burst",
         "hid",
@@ -328,13 +319,6 @@ def run_repl_line(state: SimState, line: str) -> bool:
             p.vid = p.pid = "0x0000"
             p.dev_class = p.int_class = "0x00"
             print(f"mcu_sim: unplug port {port_id}", flush=True)
-        elif cmd == "enum":
-            p.manually_blocked = False
-            p.state = "ENUMERATING"
-            p.threat_code = 0
-            p.vbus_mv = 5020
-            p.current_ma = 15
-            print(f"mcu_sim: enumerating port {port_id}", flush=True)
         elif cmd == "auth":
             _restore(p, port_id)
         elif cmd == "burst":

@@ -24,7 +24,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.textContaining('OPERATOR CONSOLE'), findsOneWidget);
-    expect(find.textContaining('Hardware-secure USB Hub'), findsOneWidget);
+    expect(
+      find.textContaining('Peripheral Interface Security System'),
+      findsOneWidget,
+    );
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Database'), findsOneWidget);
     expect(find.textContaining('PORT 1'), findsWidgets);
     expect(find.textContaining('MOCK'), findsOneWidget);
 

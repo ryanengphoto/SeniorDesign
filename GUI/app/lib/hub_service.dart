@@ -56,6 +56,8 @@ class HubService {
 
   bool get supportsReconnect => _device.supportsReconnect;
 
+  bool get supportsPortSelect => _device.supportsPortSelect;
+
   Stream<TelemetryFrame> get telemetryStream => _telemetryController.stream;
   Stream<List<SecurityEvent>> get eventsStream => _eventsController.stream;
 
@@ -151,6 +153,51 @@ class HubService {
             threatName: ThreatCode.nameFor(ThreatCode.manualHostKill.value),
             state: PortState.disconnected,
             message: 'Reconnect failed: $e',
+          ),
+        ),
+      );
+    }
+    _onDeviceStatus();
+  }
+
+  /// Host COM / tty paths for the serial picker (empty in mock).
+  List<String> listSerialPorts() => _device.listSerialPorts();
+
+  /// Switch UART device without restarting the app (serial only).
+  void setSerialPort(String portPath) {
+    if (!_device.supportsPortSelect) {
+      return;
+    }
+    final previous = _device.detail;
+    try {
+      _device.setSerialPort(portPath);
+      latestTelemetry = null;
+      if (!_telemetryController.isClosed) {
+        // Keep subscribers alive; UI shows Waiting until the next frame.
+      }
+      unawaited(
+        _appendEvent(
+          SecurityEvent(
+            at: DateTime.now(),
+            port: 0,
+            threatCode: ThreatCode.noFault.value,
+            threatName: ThreatCode.nameFor(ThreatCode.noFault.value),
+            state: PortState.disconnected,
+            message:
+                'Serial port ${previous ?? "?"} → ${_device.detail ?? portPath}',
+          ),
+        ),
+      );
+    } on Object catch (e) {
+      unawaited(
+        _appendEvent(
+          SecurityEvent(
+            at: DateTime.now(),
+            port: 0,
+            threatCode: ThreatCode.manualHostKill.value,
+            threatName: ThreatCode.nameFor(ThreatCode.manualHostKill.value),
+            state: PortState.disconnected,
+            message: 'Port switch failed: $e',
           ),
         ),
       );
@@ -287,10 +334,8 @@ class HubService {
         message = 'Keystroke burst detected on port ${port.port}';
       } else if (port.threatCode == 1) {
         message = 'Unauthorized HID detected on port ${port.port}';
-      } else if (port.state == PortState.enumerating) {
-        message = 'Device enumerating on port ${port.port}';
       } else if (port.state == PortState.authorized &&
-          prevState == PortState.enumerating) {
+          prevState == PortState.disconnected) {
         message = 'Device authorized on port ${port.port}';
       } else {
         message =
@@ -312,6 +357,26 @@ class HubService {
     }
   }
 
+  Future<void> clearAllEvents() async {
+    _events.clear();
+    _emitEvents();
+    try {
+      await _eventLog.clearAll();
+    } on Object {
+      // UI already cleared; ignore disk failures.
+    }
+  }
+
+  Future<void> deleteEvent(int id) async {
+    _events.removeWhere((e) => e.id == id);
+    _emitEvents();
+    try {
+      await _eventLog.deleteById(id);
+    } on Object {
+      // UI already updated; ignore disk failures.
+    }
+  }
+
   Future<void> _appendEvent(SecurityEvent event) async {
     _events.addLast(event);
     while (_events.length > maxEvents) {
@@ -319,7 +384,25 @@ class HubService {
     }
     _emitEvents();
     try {
-      await _eventLog.append(event);
+      final id = await _eventLog.append(event);
+      final updated = <SecurityEvent>[];
+      var replaced = false;
+      for (final e in _events) {
+        if (!replaced &&
+            e.id == null &&
+            e.at == event.at &&
+            e.port == event.port &&
+            e.message == event.message) {
+          updated.add(event.copyWith(id: id));
+          replaced = true;
+        } else {
+          updated.add(e);
+        }
+      }
+      _events
+        ..clear()
+        ..addAll(updated);
+      _emitEvents();
       await _eventLog.trimTo(maxEvents);
     } on Object {
       // Keep UI ring even if disk write fails.

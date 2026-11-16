@@ -3,6 +3,31 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../theme.dart';
 
+String _portLabel(String path) {
+  final match =
+      RegExp(r'^\\\\\.\\(COM\d+)$', caseSensitive: false).firstMatch(path.trim());
+  if (match != null) {
+    return match.group(1)!.toUpperCase();
+  }
+  return path.trim();
+}
+
+String _normalizePort(String path) {
+  final trimmed = path.trim();
+  final prefixed =
+      RegExp(r'^\\\\\.\\(COM\d+)$', caseSensitive: false).firstMatch(trimmed);
+  final bare = prefixed?.group(1) ?? trimmed;
+  final match = RegExp(r'^COM(\d+)$', caseSensitive: false).firstMatch(bare);
+  if (match == null) {
+    return bare;
+  }
+  final n = int.parse(match.group(1)!);
+  if (n >= 10) {
+    return '\\\\.\\COM$n';
+  }
+  return 'COM$n';
+}
+
 class ConnectionBanner extends StatelessWidget {
   const ConnectionBanner({
     super.key,
@@ -12,6 +37,10 @@ class ConnectionBanner extends StatelessWidget {
     this.errorMessage,
     this.supportsReconnect = false,
     this.onReconnect,
+    this.supportsPortSelect = false,
+    this.availablePorts = const [],
+    this.onPortSelected,
+    this.onRefreshPorts,
   });
 
   final bool connected;
@@ -20,6 +49,10 @@ class ConnectionBanner extends StatelessWidget {
   final String? errorMessage;
   final bool supportsReconnect;
   final VoidCallback? onReconnect;
+  final bool supportsPortSelect;
+  final List<String> availablePorts;
+  final ValueChanged<String>? onPortSelected;
+  final VoidCallback? onRefreshPorts;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +69,15 @@ class ConnectionBanner extends StatelessWidget {
             ? 'Serial error'
             : (connected ? 'Connected' : 'Waiting…'));
 
+    final portItems = <String>{
+      for (final p in availablePorts) _normalizePort(p),
+      if (detail != null && detail!.isNotEmpty) _normalizePort(detail!),
+    }.toList()
+      ..sort();
+
+    final selected =
+        detail != null && detail!.isNotEmpty ? _normalizePort(detail!) : null;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -51,7 +93,7 @@ class ConnectionBanner extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
+          constraints: const BoxConstraints(maxWidth: 420),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -62,9 +104,61 @@ class ConnectionBanner extends StatelessWidget {
                   color: HubColors.muted,
                 ),
               ),
-              if (detail != null && detail!.isNotEmpty)
+              if (supportsPortSelect && onPortSelected != null) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: 32,
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          isDense: true,
+                          value: selected != null && portItems.contains(selected)
+                              ? selected
+                              : null,
+                          hint: Text(
+                            'Select COM',
+                            style: GoogleFonts.ibmPlexMono(
+                              fontSize: 11,
+                              color: HubColors.muted,
+                            ),
+                          ),
+                          style: GoogleFonts.ibmPlexMono(
+                            fontSize: 12,
+                            color: HubColors.text,
+                          ),
+                          dropdownColor: HubColors.surfaceRaised,
+                          items: portItems
+                              .map(
+                                (path) => DropdownMenuItem(
+                                  value: path,
+                                  child: Text(_portLabel(path)),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (value) {
+                            if (value != null) {
+                              onPortSelected!(value);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    if (onRefreshPorts != null)
+                      IconButton(
+                        tooltip: 'Refresh ports',
+                        onPressed: onRefreshPorts,
+                        iconSize: 18,
+                        visualDensity: VisualDensity.compact,
+                        color: HubColors.muted,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                  ],
+                ),
+              ] else if (detail != null && detail!.isNotEmpty)
                 Text(
-                  detail!,
+                  _portLabel(detail!),
                   style: GoogleFonts.ibmPlexMono(
                     fontSize: 11,
                     color: HubColors.muted,

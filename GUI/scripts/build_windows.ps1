@@ -10,8 +10,17 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $App = Join-Path $Root "app"
 
+$userFlutter = Join-Path $env:USERPROFILE "flutter\bin"
+if (Test-Path (Join-Path $userFlutter "flutter.bat")) {
+    $env:Path = "$userFlutter;" + $env:Path
+}
+# Flutter SDK is often owned by Administrators after install — allow git reads.
+$env:GIT_CONFIG_COUNT = "1"
+$env:GIT_CONFIG_KEY_0 = "safe.directory"
+$env:GIT_CONFIG_VALUE_0 = ((Join-Path $env:USERPROFILE "flutter") -replace '\\', '/')
+
 if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
-    Write-Error "flutter not found on PATH. Install Flutter for Windows and reopen this shell."
+    Write-Error "flutter not found on PATH. Install Flutter for Windows under %USERPROFILE%\flutter (or add it to PATH) and reopen this shell."
 }
 
 Set-Location $App

@@ -3,11 +3,23 @@
 # Prototype on Linux/web; Windows .exe is a release packaging target (build on Windows).
 
 APP_DIR := app
-FLUTTER ?= $(HOME)/flutter/bin/flutter
 WEB_PORT ?= 7357
 WEB_HOST ?= 127.0.0.1
 LINUX_RELEASE_BIN := $(APP_DIR)/build/linux/x64/release/bundle/hub_console
 LINUX_DEBUG_BIN := $(APP_DIR)/build/linux/x64/debug/bundle/hub_console
+
+# Flutter SDK: Linux/WSL default ~/flutter; Windows uses %USERPROFILE%\flutter or PATH.
+ifeq ($(OS),Windows_NT)
+  USER_FLUTTER := $(USERPROFILE)/flutter/bin/flutter.bat
+  ifneq ($(wildcard $(USER_FLUTTER)),)
+    FLUTTER ?= $(USER_FLUTTER)
+  else
+    FLUTTER ?= flutter
+  endif
+else
+  FLUTTER ?= $(HOME)/flutter/bin/flutter
+  export PATH := $(HOME)/flutter/bin:$(HOME)/.local/bin:$(PATH)
+endif
 
 # Tier-1 serial bring-up (PTY + mcu_sim — NOT real PCB hardware)
 SERIAL_PORT ?= /tmp/hub_host
@@ -17,8 +29,6 @@ HUB_MODE ?= serial
 PYTHON ?= python3
 SOCAT_PID_FILE := /tmp/hub_socat.pid
 MCU_SIM_PID_FILE := /tmp/hub_mcu_sim.pid
-
-export PATH := $(HOME)/flutter/bin:$(HOME)/.local/bin:$(PATH)
 
 .PHONY: help dev linux run-linux web windows install analyze test test-serial \
 	build build-web build-linux build-windows stop doctor \
@@ -53,9 +63,10 @@ help:
 	@echo "  make build-web      Web → app/build/web/  (portable in any browser)"
 	@echo "  make build-linux    Linux release → app/build/linux/.../release/bundle/"
 	@echo "  make build-windows  Windows .exe  → app/build/windows/.../Release/"
-	@echo "                      (must run on Windows with Visual Studio + Flutter)"
+	@echo "                      (Windows host: runs scripts/build_windows.ps1)"
 	@echo "  make build          Alias for build-web"
 	@echo "  make windows        Alias for build-windows"
+	@echo "  .\\scripts\\build_windows.ps1   Same Windows release build (PowerShell)"
 	@echo ""
 	@echo "  Quality:"
 	@echo "  make install        flutter pub get"
@@ -203,30 +214,23 @@ build-linux: install
 	cd $(APP_DIR) && $(FLUTTER) build linux --release
 	@echo "Linux bundle: $(APP_DIR)/build/linux/x64/release/bundle/"
 
-# Windows cannot be cross-compiled from Linux/WSL. Fail fast with instructions.
-windows build-windows: install
+# Windows cannot be cross-compiled from Linux/WSL. Prefer the PowerShell script on NT.
+windows build-windows:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+else
 	@uname_s=$$(uname -s 2>/dev/null || echo unknown); \
-	case "$$uname_s" in \
-	  MINGW*|MSYS*|CYGWIN*|Windows_NT) \
-	    cd $(APP_DIR) && $(FLUTTER) build windows --release; \
-	    echo "Windows Release folder: $(APP_DIR)/build/windows/x64/runner/Release/"; \
-	    echo "Zip that whole folder for a portable demo (exe + DLLs)."; \
-	    ;; \
-	  *) \
-	    printf '%s\n' \
-	      "ERROR: Windows .exe must be built on a Windows host (not $$uname_s / WSL)." \
-	      "" \
-	      "On Windows (PowerShell), with Flutter + Visual Studio Desktop C++ workload:" \
-	      "  cd GUI/app" \
-	      "  flutter pub get" \
-	      "  flutter build windows --release" \
-	      "" \
-	      "Or from GUI/:  .\\scripts\\build_windows.ps1" \
-	      "Output: app/build/windows/x64/runner/Release/  (zip the whole folder)" \
-	      >&2; \
-	    exit 1; \
-	    ;; \
-	esac
+	printf '%s\n' \
+	  "ERROR: Windows .exe must be built on a Windows host (not $$uname_s / WSL)." \
+	  "" \
+	  "On Windows (PowerShell), with Flutter + Visual Studio Desktop C++ workload:" \
+	  "  cd GUI" \
+	  "  .\\scripts\\build_windows.ps1" \
+	  "" \
+	  "Output: app/build/windows/x64/runner/Release/  (zip the whole folder)" \
+	  >&2; \
+	exit 1
+endif
 
 stop:
 	-fuser -k $(WEB_PORT)/tcp 2>/dev/null

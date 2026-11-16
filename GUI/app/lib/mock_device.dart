@@ -8,7 +8,7 @@ import 'protocol.dart';
 ///
 /// Demo script:
 /// - Port 0 starts as an authorized flash drive
-/// - Port 1: enumerate (~5s) → keyboard (~8s) → KEYSTROKE_BURST (~15s)
+/// - Port 1: keyboard authorized (~5s) → KEYSTROKE_BURST (~15s)
 class MockDevice implements HubDevice {
   MockDevice() {
     _ports = [
@@ -47,7 +47,16 @@ class MockDevice implements HubDevice {
   bool get supportsReconnect => false;
 
   @override
+  bool get supportsPortSelect => false;
+
+  @override
   void reconnect() {}
+
+  @override
+  List<String> listSerialPorts() => const [];
+
+  @override
+  void setSerialPort(String portPath) {}
 
   @override
   bool get isPolled => true;
@@ -126,8 +135,15 @@ class MockDevice implements HubDevice {
     final previous = ThreatCode.nameFor(port.threatCode);
     port.threatCode = ThreatCode.noFault.value;
 
+    // Clear only drops the sticky threat latch. Restore is required to
+    // re-enable a quarantined or manually blocked port.
+    final stillIsolated = port.manuallyBlocked ||
+        port.state == PortState.manualBlocked ||
+        port.state == PortState.quarantined;
     if (port.manuallyBlocked) {
       port.state = PortState.manualBlocked;
+    }
+    if (stillIsolated) {
       return (
         port.state,
         port.threatCode,
@@ -135,9 +151,6 @@ class MockDevice implements HubDevice {
       );
     }
 
-    port.state = PortState.authorized;
-    port.vbusMv = 5020;
-    port.currentMa = 20 + _rng.nextInt(41);
     return (
       port.state,
       port.threatCode,
@@ -161,9 +174,7 @@ class MockDevice implements HubDevice {
 
   void _jitterReadings() {
     for (final port in _ports) {
-      if (port.vbusMv > 0 &&
-          (port.state == PortState.authorized ||
-              port.state == PortState.enumerating)) {
+      if (port.vbusMv > 0 && port.state == PortState.authorized) {
         port.currentMa = max(0, port.currentMa + _rng.nextInt(7) - 3);
       }
     }
@@ -178,30 +189,23 @@ class MockDevice implements HubDevice {
     }
 
     if (_scriptStage == 0 && elapsedS >= 5) {
-      port1.state = PortState.enumerating;
-      port1.vbusMv = 5020;
-      port1.currentMa = 15;
-      _scriptStage = 1;
-      return;
-    }
-
-    if (_scriptStage == 1 && elapsedS >= 8) {
       port1.state = PortState.authorized;
+      port1.vbusMv = 5020;
       port1.vid = '0x046D';
       port1.pid = '0xC31C';
       port1.devClass = '0x00';
       port1.intClass = '0x03';
       port1.currentMa = 55;
-      _scriptStage = 2;
+      _scriptStage = 1;
       return;
     }
 
-    if (_scriptStage == 2 && elapsedS >= 15) {
+    if (_scriptStage == 1 && elapsedS >= 15) {
       port1.state = PortState.quarantined;
       port1.threatCode = ThreatCode.keystrokeBurst.value;
       port1.vbusMv = 0;
       port1.currentMa = 0;
-      _scriptStage = 3;
+      _scriptStage = 2;
     }
   }
 }

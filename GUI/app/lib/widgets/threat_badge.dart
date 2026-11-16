@@ -37,7 +37,6 @@ class ThreatBadge extends StatelessWidget {
 Color stateForeground(PortState state) {
   return switch (state) {
     PortState.authorized => HubColors.ok,
-    PortState.enumerating => HubColors.warn,
     PortState.quarantined || PortState.manualBlocked => HubColors.danger,
     PortState.disconnected => HubColors.muted,
   };

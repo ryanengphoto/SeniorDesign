@@ -12,5 +12,11 @@ void main() {
   test('normalizePortPath prefixes COM10+ for Win32', () {
     expect(SerialDevice.normalizePortPath('COM10'), r'\\.\COM10');
     expect(SerialDevice.normalizePortPath('com15'), r'\\.\COM15');
+    expect(SerialDevice.normalizePortPath(r'\\.\COM3'), 'COM3');
+  });
+
+  test('displayPortLabel strips Windows extended prefix', () {
+    expect(SerialDevice.displayPortLabel('COM3'), 'COM3');
+    expect(SerialDevice.displayPortLabel(r'\\.\COM10'), 'COM10');
   });
 }
