@@ -71,20 +71,22 @@ module sniffer_block #(
     );
 
     usb_packet_frontend u_fe (
-        .clk_48m   (clk_48m),
-        .rst       (rst),
-        .dp        (dp),
-        .dm        (dm),
-        .pkt_start (pkt_start),
-        .pkt_end   (pkt_end),
-        .pid       (pid),
-        .addr      (addr),
-        .endp      (endp),
-        .frame_num (frame_num),
-        .data_valid(data_valid),
-        .data      (data),
-        .crc_ok    (crc_ok),
-        .crc_fault (crc_fault)
+        .clk_48m     (clk_48m),
+        .rst         (rst),
+        .is_ls       (speed_is_ls),
+        .speed_valid (speed_valid),
+        .dp          (dp),
+        .dm          (dm),
+        .pkt_start   (pkt_start),
+        .pkt_end     (pkt_end),
+        .pid         (pid),
+        .addr        (addr),
+        .endp        (endp),
+        .frame_num   (frame_num),
+        .data_valid  (data_valid),
+        .data        (data),
+        .crc_ok      (crc_ok),
+        .crc_fault   (crc_fault)
     );
 
     enumeration_analysis u_enum (
@@ -115,12 +117,16 @@ module sniffer_block #(
         else     intf_class_valid_d <= intf_class_valid;
     end
 
-    assign hid_threat_pulse = POLICY_STORAGE_ONLY &&
+    // Mute policy until attach speed is locked (avoids LS false CRC on FS RX).
+    assign hid_threat_pulse = speed_valid &&
+                              POLICY_STORAGE_ONLY &&
                               intf_class_valid && !intf_class_valid_d &&
                               (intf_class == 8'h03);
 
-    assign threat_pulse   = crc_fault | hid_threat_pulse;
-    assign threat_code_in = crc_fault        ? `THREAT_CRC_TOKEN_FAULT :
+    wire crc_threat = speed_valid & crc_fault;
+
+    assign threat_pulse   = crc_threat | hid_threat_pulse;
+    assign threat_code_in = crc_threat       ? `THREAT_CRC_TOKEN_FAULT :
                             hid_threat_pulse ? `THREAT_UNAUTHORIZED_HID :
                                                `THREAT_NO_FAULT;
 
@@ -150,6 +156,7 @@ module sniffer_block #(
     ) u_sniff_sva (
         .clk               (clk_48m),
         .rst               (rst),
+        .speed_valid       (speed_valid),
         .crc_fault         (crc_fault),
         .intf_class_valid  (intf_class_valid),
         .intf_class_valid_d(intf_class_valid_d),

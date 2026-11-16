@@ -13,6 +13,7 @@ open_project $proj_file
 foreach f [list \
   [file join $src strobe.v] \
   [file join $src usb_fs_rx.v] \
+  [file join $src usb_sie_rx.sv] \
   [file join $src usb_reset_det.v] \
   [file join $src usb_packet_frontend.sv] \
   [file join $src isolation_controller.sv] \
@@ -44,6 +45,7 @@ foreach f [list \
 
 foreach f [list \
   [file join $sim tb_sniffer.sv] \
+  [file join $sim tb_sie_ls.sv] \
   [file join $sim tb_enumeration_analysis.sv] \
   [file join $sim tb_usb_line_attach.sv] \
   [file join $sim tb_kill_e2e.sv] \

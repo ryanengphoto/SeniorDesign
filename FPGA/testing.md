@@ -91,6 +91,7 @@ Must match `SIM_ALL_TOPS` in `Makefile` and `tops` in `scripts/sim_all.tcl`.
 | Top | What it proves |
 | --- | --- |
 | `tb_sniffer` | Port0 CRC → kill threat `0x5` (smoke) |
+| `tb_sie_ls` | Low-Speed selectable RX: mute-before-lock, good/corrupt DATA0, HID kill `0x1` |
 | `tb_enumeration_analysis` | Direct-event device + config descriptor telemetry |
 | `tb_kill_e2e` | All ports sequential + concurrent CRC kill; sticky until SPI `Pn_CONTROL[6]` clear |
 | `tb_enum_e2e` | Wire SETUP + descriptors → VID/PID/class latch (no kill) |
@@ -109,7 +110,7 @@ All are procedural (XSim 2018.2 ignores concurrent `assert property` / XSIM 43-4
 | File | Attached to | Checks |
 | --- | --- | --- |
 | `isolation_controller_sva.sv` | `isolation_controller` | Sticky kill; manual→`0x7`; clear releases; threat latch; sticky threat ignore |
-| `sniffer_block_sva.sv` | `sniffer_block` | HID/CRC threat mux; `POLICY_STORAGE_ONLY`; `port_status` bits |
+| `sniffer_block_sva.sv` | `sniffer_block` | HID/CRC threat mux (gated by `speed_valid`); `POLICY_STORAGE_ONLY`; `port_status` bits |
 | `enumeration_analysis_sva.sv` | `enumeration_analysis` | Legal `ST_*`; sticky `attached` / desc / intf valid |
 | `usb_packet_frontend_sva.sv` | `usb_packet_frontend` | `crc_fault`↔`pkt_end`; no orphan end; `data_valid` in-packet |
 | `sniffer_wrapper_sva.sv` | `sniffer_wrapper` | Per-port status mirror; cross-port clear isolation; `0x7` needs manual |

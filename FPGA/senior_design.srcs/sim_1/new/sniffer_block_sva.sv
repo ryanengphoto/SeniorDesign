@@ -12,6 +12,7 @@ module sniffer_block_sva #(
 ) (
     input logic       clk,
     input logic       rst,
+    input logic       speed_valid,
     input logic       crc_fault,
     input logic       intf_class_valid,
     input logic       intf_class_valid_d,
@@ -26,26 +27,31 @@ module sniffer_block_sva #(
 );
 
     logic sample_valid;
+    wire  crc_threat = speed_valid & crc_fault;
+    wire  hid_exp = speed_valid && POLICY_STORAGE_ONLY &&
+                    intf_class_valid && !intf_class_valid_d &&
+                    (intf_class == 8'h03);
 
     always_ff @(posedge clk) begin
         if (rst) begin
             sample_valid <= 1'b0;
         end else begin
             if (sample_valid) begin
-                if (hid_threat_pulse !==
-                    (POLICY_STORAGE_ONLY && intf_class_valid && !intf_class_valid_d &&
-                     (intf_class == 8'h03)))
+                if (hid_threat_pulse !== hid_exp)
                     $error("sniffer_block SVA: hid_threat_pulse decode mismatch");
 
                 if (!POLICY_STORAGE_ONLY && hid_threat_pulse)
                     $error("sniffer_block SVA: HID pulse with POLICY_STORAGE_ONLY=0");
 
-                if (threat_pulse !== (crc_fault | hid_threat_pulse))
+                if (!speed_valid && (hid_threat_pulse || threat_pulse))
+                    $error("sniffer_block SVA: threat before speed lock");
+
+                if (threat_pulse !== (crc_threat | hid_threat_pulse))
                     $error("sniffer_block SVA: threat_pulse mux mismatch");
 
                 // CRC wins over HID when both true (matches sniffer_block assign).
                 if (threat_code_in !==
-                    (crc_fault        ? `THREAT_CRC_TOKEN_FAULT :
+                    (crc_threat       ? `THREAT_CRC_TOKEN_FAULT :
                      hid_threat_pulse ? `THREAT_UNAUTHORIZED_HID :
                                         `THREAT_NO_FAULT))
                     $error("sniffer_block SVA: threat_code_in mux mismatch");

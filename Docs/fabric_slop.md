@@ -75,8 +75,8 @@ The architecture fits within the Spartan-7 XC7S25 envelope with low routing cong
 The design uses three internal clock domains derived from a single `MMCME2_BASE` primitive:
 
 * **`CLK_100M` (100.0 MHz):** System core clock driving the SPI Slave, internal register file, and host communications.
-* **`CLK_48M` (48.0 MHz):** Digital receiver clock providing 4x oversampling for 12 Mbps Full-Speed USB data.
-* **`CLK_12M` (12.0 MHz):** Base reference clock matching the USB 2.0 Full-Speed bit period.
+* **`CLK_48M` (48.0 MHz):** Soft RX clock. Full-Speed uses 4× oversample; Low-Speed uses 32×. `usb_sie_rx.is_ls` (from `usb_line_attach`) selects bit timing and J/K polarity. Kills are muted until `speed_valid`.
+* **`CLK_12M` (12.0 MHz):** Board reference / MMCM input (Cmod S7); not the LS bit clock.
 
 ### Clock Domain Crossing (CDC) Rules
 * Status and threat flags crossing from 48 MHz to 100 MHz pass through 2-stage flip-flop synchronizers with `ASYNC_REG = "TRUE"` attributes.

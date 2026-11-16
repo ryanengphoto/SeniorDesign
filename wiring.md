@@ -87,7 +87,7 @@ Watch **LED1** / SPI regs `0x20`–`0x27` (MCU UART bring-up is still port0-cent
 
 Port0 boot selfstim still runs → sticky kill / VID·PID demo values. Press **`btn_clear`** (or SPI clear) before trusting live traffic; **`btn_rst`** re-fires selfstim. Kill LEDs can assert; without a MUX on the breadboard the USB link is not actually cut.
 
-Short D+/D− jumpers; common GND with PC/device/Cmod. FS only.
+Short D+/D− jumpers; common GND with PC/device/Cmod. Soft RX auto-selects **FS or LS** from idle J (`usb_sie_rx`).
 
 **Attach / disconnect (FS + LS auto):** presence is USB **J** on D+/D− (idle device stays attached). Long **SE0** → disconnect, clears latched VID/PID so the GUI can go `DISCONNECTED` and re-enum a new device. Soft tap does **not** do High-Speed (480). Override with sniffer `SPEED_MODE` (0=auto, 1=FS, 2=LS).
 
@@ -98,7 +98,7 @@ make -C FPGA build ENABLE_SELFSTIM=0
 make -C FPGA prog
 ```
 
-Cold start should show no `0x1234`/`0x5678` / threat `0x1`. Anything that appears after plugging a real FS device (e.g. Rubber Ducky) is from the tap. Default `make -C FPGA build` restores the selfstim demo bit.
+Cold start should show no `0x1234`/`0x5678` / threat `0x1`. A real **LS mouse** (or FS Rubber Ducky) on the tap should attach, enum, and trip HID kill `0x1` under storage-only policy. Default `make -C FPGA build` restores the selfstim demo bit.
 
 ---
 

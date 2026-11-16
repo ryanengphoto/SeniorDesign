@@ -33,6 +33,7 @@ ENABLE_SELFSTIM ?= 1
 # Regression tops (must match scripts/sim_all.tcl)
 SIM_ALL_TOPS := \
 	tb_sniffer \
+	tb_sie_ls \
 	tb_enumeration_analysis \
 	tb_usb_line_attach \
 	tb_kill_e2e \
