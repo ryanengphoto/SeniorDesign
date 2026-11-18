@@ -5,6 +5,9 @@
 // is_ls=0: Full-Speed 12 Mbps (4× oversample @ 48 MHz), J=D+/D− = 10
 // is_ls=1: Low-Speed  1.5 Mbps (32× oversample @ 48 MHz), J=D+/D− = 01
 // PID/NRZI/CRC path is shared; only bit timing and J/K polarity change.
+//
+// clk and clk_48mhz are the same domain in this fabric, so TinyFPGA strobe/dflip
+// CDC helpers are not used (see FPGA/references/). Outputs are wired in-domain.
 
 module usb_sie_rx (
   // A 48MHz clock is required to recover the clock from the incoming data. 
@@ -335,9 +338,9 @@ module usb_sie_rx (
     (pkt_is_data && crc16_valid) ||
     (pkt_is_token && crc5_valid)
   );
-  
-  // valid is level, not a strobe
-  dflip valid_buffer(clk, valid_packet_48, valid_packet);
+
+  // Same-clock fabric: no dflip delay on valid (kept aligned with packet_end).
+  assign valid_packet = valid_packet_48;
 
   reg [11:0] token_payload = 0;
   wire token_payload_done = token_payload[0];
@@ -360,40 +363,24 @@ module usb_sie_rx (
     end
   end
 
-  // cross the packet start signal to the endpoint clk domain
-  strobe pkt_start_strobe(
-	.clk_in(clk_48mhz),
-	.clk_out(clk),
-	.strobe_in(packet_start),
-	.strobe_out(pkt_start)
-  );
+  assign pid_48 = full_pid[4:1];
 
-  // at the end of the packet, capture the parameters to the clk domain
-  strobe #(.WIDTH(26)) pkt_end_strobe(
-	clk_48mhz, clk,
-	packet_end, pkt_end,
-	{ pid_48, addr_48, endp_48, frame_num_48 },
-	{ pid, addr, endp, frame_num }
-  );
-  assign pid_48 = full_pid[4:1]; 
-
-  //assign addr = token_payload[7:1];
-  //assign endp = token_payload[11:8];
-  //assign frame_num = token_payload[11:1];
-  
+  // Same-clock: no TinyFPGA strobe CDC.
+  // clk kept on the port for API compatibility with upstream usb_fs_rx.
+  assign pkt_start  = packet_start;
+  assign pkt_end    = packet_end;
+  assign pid        = pid_48;
+  assign addr       = addr_48;
+  assign endp       = endp_48;
+  assign frame_num  = frame_num_48;
 
   ////////////////////////////////////////////////////////////////////////////////
   // deserialize and output data
-  //assign rx_data_put = dvalid && pid_complete && pkt_is_data;
   reg [8:0] rx_data_buffer = 0;
   wire rx_data_buffer_full = rx_data_buffer[0];
 
-  // convert the rx_data_put to clk domain
-  strobe #(.WIDTH(8)) rx_data_strobe(
-	clk_48mhz, clk,
-	rx_data_buffer_full, rx_data_put,
-	rx_data_buffer[8:1], rx_data
-  );
+  assign rx_data_put = rx_data_buffer_full;
+  assign rx_data     = rx_data_buffer[8:1];
 
   always @(posedge clk_48mhz) begin
     if (packet_start || rx_data_buffer_full) begin

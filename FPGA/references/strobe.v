@@ -6,6 +6,9 @@
 //   - `timescale for Vivado XSim mixed-file elaborations
 //   - ANSI #() parameters before ports for Vivado xvlog (2018.2)
 // Functional behavior otherwise unchanged from upstream strobe.v / dflip.
+//
+// Reference only (not in senior_design sources_1). Active soft RX is
+// `usb_sie_rx` (same 48 MHz domain, no CDC). Paired with references/usb_fs_rx.v.
 
 module strobe #(
   parameter WIDTH = 1,

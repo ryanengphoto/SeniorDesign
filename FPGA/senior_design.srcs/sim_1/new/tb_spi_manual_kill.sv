@@ -28,6 +28,9 @@ module tb_spi_manual_kill;
 
     logic [`NUM_PORTS-1:0] clear_fault;
     logic [`NUM_PORTS-1:0] manual_kill;
+    logic [2:0]            policy_mode [`NUM_PORTS-1:0];
+    logic [`NUM_PORTS-1:0] approve_hid;
+
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code [`NUM_PORTS-1:0];
     logic [7:0]            port_status [`NUM_PORTS-1:0];
@@ -56,6 +59,8 @@ module tb_spi_manual_kill;
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
+        .policy_mode       (policy_mode),
+        .approve_hid       (approve_hid),
         .kill              (kill),
         .threat_code       (threat_code),
         .port_status       (port_status),
@@ -90,7 +95,9 @@ module tb_spi_manual_kill;
         .dev_class   (dev_class),
         .intf_class  (intf_class),
         .clear_fault (clear_fault),
-        .manual_kill (manual_kill)
+        .manual_kill (manual_kill),
+        .policy_mode (policy_mode),
+        .approve_hid (approve_hid)
     );
 
     spi_slave u_spi (

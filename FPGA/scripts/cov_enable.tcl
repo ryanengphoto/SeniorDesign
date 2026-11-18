@@ -71,6 +71,7 @@ proc cov_write_scenario_matrix {out_path results {extra_notes {}}} {
   puts $fh "CRC→kill all ports + SPI clear    | tb_kill_e2e                                   | see TB PASS"
   puts $fh "Enum VID/PID/class latch          | tb_enum_e2e, tb_enumeration_analysis          | see TB PASS"
   puts $fh "HID policy kill 0x1               | tb_demo_threat, tb_spi_enum_e2e, tb_main_selfstim | see TB PASS"
+  puts $fh "HID confirm pending/approve       | tb_hid_confirm | see TB PASS"
   puts $fh "SPI read enum telemetry           | tb_spi_enum_e2e                               | see TB PASS"
   puts $fh "SPI manual kill 0x7 + clear       | tb_spi_manual_kill                            | see TB PASS"
   puts $fh "CRC↔manual cross / sticky ignore  | tb_kill_manual_cross                          | see TB PASS"

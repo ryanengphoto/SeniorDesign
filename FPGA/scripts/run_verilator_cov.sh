@@ -99,8 +99,7 @@ run_one tb_cov_sniffer \
   "$SRC/usb_packet_frontend.sv" \
   "$SRC/usb_sie_rx.sv" \
   "$SRC/usb_line_attach.sv" \
-  "$SRC/usb_fs_tx.v" \
-  "$SRC/strobe.v"
+  "$SRC/usb_fs_tx.v"
 
 echo ""
 echo "==== merge + annotate ===="

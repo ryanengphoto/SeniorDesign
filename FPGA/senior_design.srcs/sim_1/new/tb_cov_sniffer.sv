@@ -25,6 +25,10 @@ module tb_cov_sniffer;
     logic clear_fault = 1'b0;
     logic clear_fault_np = 1'b0;
     logic manual_kill = 1'b0;
+    logic approve_hid = 1'b0;
+    logic approve_hid_np = 1'b0;
+    logic [2:0] policy_mode = `CTRL_POLICY_STORAGE_ONLY;
+    logic [2:0] policy_mode_np = `CTRL_POLICY_HID_ALLOW;
     logic kill;
     logic [3:0] threat_code;
     logic [7:0] port_status;
@@ -36,15 +40,15 @@ module tb_cov_sniffer;
     logic [6:0] addr;
     logic [7:0] data;
 
-    sniffer_block #(
-        .POLICY_STORAGE_ONLY(1'b1)
-    ) dut (
+    sniffer_block dut (
         .clk_48m           (clk_48m),
         .rst               (rst),
         .dp                (dp),
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
+        .policy_mode       (policy_mode),
+        .approve_hid       (approve_hid),
         .pkt_start         (pkt_start),
         .pkt_end           (pkt_end),
         .pid               (pid),
@@ -64,8 +68,7 @@ module tb_cov_sniffer;
         .threat_code       (threat_code)
     );
 
-    // Second instance: storage-only off so HID class does not assert threat 0x1
-    // (exercises POLICY_STORAGE_ONLY=0 side of sniffer_block assigns).
+    // Second instance: HID_ALLOW so HID class does not assert threat 0x1 / pending.
     logic kill_np;
     logic [3:0] threat_np;
     logic [7:0] intf_np;
@@ -79,15 +82,15 @@ module tb_cov_sniffer;
     logic [6:0] addr_np;
     logic [7:0] data_np;
 
-    sniffer_block #(
-        .POLICY_STORAGE_ONLY(1'b0)
-    ) dut_no_policy (
+    sniffer_block dut_no_policy (
         .clk_48m           (clk_48m),
         .rst               (rst),
         .dp                (dp),
         .dm                (dm),
         .clear_fault       (clear_fault_np),
         .manual_kill       (1'b0),
+        .policy_mode       (policy_mode_np),
+        .approve_hid       (approve_hid_np),
         .pkt_start         (ps_np_s),
         .pkt_end           (pe_np),
         .pid               (upid_np),

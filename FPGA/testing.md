@@ -96,6 +96,7 @@ Must match `SIM_ALL_TOPS` in `Makefile` and `tops` in `scripts/sim_all.tcl`.
 | `tb_kill_e2e` | All ports sequential + concurrent CRC kill; sticky until SPI `Pn_CONTROL[6]` clear |
 | `tb_enum_e2e` | Wire SETUP + descriptors → VID/PID/class latch (no kill) |
 | `tb_demo_threat` | Wire HID interface on storage-only policy → kill `0x1` |
+| `tb_hid_confirm` | HID-after-confirm policy → pending hold; clear keeps; approve releases |
 | `tb_spi_enum_e2e` | Wire enum → SPI-read `Pn_STATUS`/VID/PID/class; HID kill `0x1` + SPI clear |
 | `tb_main_selfstim` | `main_wrapper` auto self-stim → LED kill → SPI telemetry → `btn_clear` |
 | `tb_spi_manual_kill` | SPI `Pn_CONTROL[7]` → threat `0x7` + clear (all ports; no USB) |
@@ -155,7 +156,7 @@ Acceptance remains **`make sim-all` (XSim)** — that is where `isolation_contro
 | Notes | `verilator/README.md`; build trees under `verilator/obj_dir/` (gitignored) |
 | Flags | `--binary --timing --coverage` (line + branch/expr + toggle; no native FSM on 5.040) |
 | SVA | Stripped via `` `ifndef VERILATOR `` on all `*_sva` instantiations |
-| DUT scope | `isolation_controller` + `sniffer_block` + enum + TinyFPGA RX/TX/`strobe`. **Not** `main_wrapper` / MMCM / SPI RF |
+| DUT scope | `isolation_controller` + `sniffer_block` + enum + TinyFPGA RX/TX (`usb_sie_rx` / `usb_fs_tx`). **Not** `main_wrapper` / MMCM / SPI RF. Legacy RX helpers in `FPGA/references/`. |
 | Outputs | `cov/verilator/summary.txt`, `annotate/`, `coverage.info` (lcov), `merged.dat` |
 | Helpers | `scripts/line_cov_summary.py`, `cov_type_summary.py`, `toggle_cov_summary.py` |
 

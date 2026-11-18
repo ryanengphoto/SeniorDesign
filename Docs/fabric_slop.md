@@ -132,8 +132,8 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | `0x00` | `SYS_STATUS` | RO | `0x00` | `[7:4]` Global Error Code, `[3:0]` Per-port kill sticky (ports 3..0) |
 | `0x01` | `SYS_CONTROL` | RW | `0x00` | `[7]` Global Soft Reset, `[3:0]` Force Global MUX Enable Override |
 | `0x02` | — | — | — | Reserved (unused; do not implement) |
-| `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill, `[6]` Clear Fault, `[2:0]` Policy Mode |
-| `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` Configured, `[3:0]` Threat Code |
+| `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill (level), `[6]` Clear Fault (pulse), `[5]` Approve HID (pulse), `[2:0]` Policy Mode (`0`=storage-only HID→`0x1`, `1`=HID-after-confirm, `2`=HID allow) |
+| `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` Configured (0), `[4]` HID pending confirm, `[3:0]` Threat Code |
 | `0x12` | `P0_VID_HIGH` | RO | `0x00` | Parsed Vendor ID High Byte (`VID[15:8]`) |
 | `0x13` | `P0_VID_LOW` | RO | `0x00` | Parsed Vendor ID Low Byte (`VID[7:0]`) |
 | `0x14` | `P0_PID_HIGH` | RO | `0x00` | Parsed Product ID High Byte (`PID[15:8]`) |
@@ -151,7 +151,8 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | Threat Code (`4'h_`) | Threat Name | Trigger Condition | Hardware Action |
 |:---:|---|---|---|
 | `0x0` | `NO_FAULT` | Normal operation. | Normal passthrough (MUX closed). |
-| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage port. | Open MUX (<20 ns), cut eFuse, update status. |
+| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage-only policy (`Pn_CONTROL[2:0]=0`). | Open MUX (<20 ns), cut eFuse, update status. |
+| — | *(HID pending)* | HID class on HID-after-confirm policy (`[2:0]=1`). | Hold kill + `Pn_STATUS[4]`; **not** threat `0x1`. Release only via `APPROVE_HID` (`[5]`) or disconnect. `clear_fault` does not approve. |
 | `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open MUX (≤100 ns target), update status. |
 | `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Drop packets, update status. |
 | `0x4` | `DESCRIPTOR_OVERFLOW` | `wTotalLength > 512` or length mismatch. | Isolate port, update status. |
