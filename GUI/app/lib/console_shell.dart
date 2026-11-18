@@ -9,6 +9,7 @@ import 'hub_service.dart';
 import 'protocol.dart';
 import 'theme.dart';
 import 'widgets/connection_banner.dart';
+import 'widgets/keyboard_confirm_dialog.dart';
 
 enum ConsoleSection { dashboard, database }
 
@@ -27,12 +28,68 @@ class _ConsoleShellState extends State<ConsoleShell> {
   TelemetryFrame? _telemetry;
   List<SecurityEvent> _events = const [];
   List<String> _serialPorts = const [];
+  final Set<int> _promptedPendingPorts = {};
+  int? _activeDialogPort;
+  BuildContext? _activeDialogContext;
 
   void _refreshSerialPorts() {
     if (!widget.hub.supportsPortSelect) {
       return;
     }
     setState(() => _serialPorts = widget.hub.listSerialPorts());
+  }
+
+  void _showKeyboardConfirmDialog(PortStatus port) {
+    if (!mounted || _activeDialogPort == port.port) {
+      return;
+    }
+    _activeDialogPort = port.port;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      KeyboardConfirmDialog.show(
+        context,
+        port: port,
+        onContextReady: (dialogCtx) {
+          _activeDialogContext = dialogCtx;
+        },
+        onConfirm: () =>
+            widget.hub.handleCommand(CommandType.confirmHid, port.port),
+        onIsolate: () =>
+            widget.hub.handleCommand(CommandType.isolatePort, port.port),
+      ).then((_) {
+        if (_activeDialogPort == port.port) {
+          _activeDialogPort = null;
+          _activeDialogContext = null;
+        }
+      });
+    });
+  }
+
+  void _checkPendingHidConfirm(TelemetryFrame frame) {
+    final currentPending = <int>{};
+    for (final p in frame.ports) {
+      if (p.state == PortState.pendingHidConfirm) {
+        currentPending.add(p.port);
+        if (!_promptedPendingPorts.contains(p.port)) {
+          _promptedPendingPorts.add(p.port);
+          _showKeyboardConfirmDialog(p);
+        }
+      }
+    }
+
+    _promptedPendingPorts
+        .removeWhere((portId) => !currentPending.contains(portId));
+
+    if (_activeDialogPort != null &&
+        !currentPending.contains(_activeDialogPort)) {
+      if (_activeDialogContext != null && _activeDialogContext!.mounted) {
+        Navigator.of(_activeDialogContext!).pop();
+      }
+      _activeDialogPort = null;
+      _activeDialogContext = null;
+    }
   }
 
   @override
@@ -48,6 +105,7 @@ class _ConsoleShellState extends State<ConsoleShell> {
         return;
       }
       setState(() => _telemetry = frame);
+      _checkPendingHidConfirm(frame);
     });
     widget.hub.eventsStream.listen((events) {
       if (!mounted) {
@@ -67,6 +125,9 @@ class _ConsoleShellState extends State<ConsoleShell> {
             _serialPorts = widget.hub.listSerialPorts();
           }
         });
+        if (_telemetry != null) {
+          _checkPendingHidConfirm(_telemetry!);
+        }
       }),
     );
   }
@@ -116,6 +177,7 @@ class _ConsoleShellState extends State<ConsoleShell> {
                   hub: widget.hub,
                   telemetry: _telemetry,
                   events: _events,
+                  onRequestConfirmKeyboard: _showKeyboardConfirmDialog,
                 ),
                 DatabasePage(
                   liveEvents: _events,
@@ -170,20 +232,21 @@ class _ConsoleHeader extends StatelessWidget {
           bottom: BorderSide(color: HubColors.border),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1400),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             ClipOval(
               child: Image.asset(
                 'assets/branding/logo.png',
-                width: 56,
-                height: 56,
+                width: 96,
+                height: 96,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => Container(
-                  width: 56,
-                  height: 56,
+                  width: 96,
+                  height: 96,
                   color: HubColors.surfaceRaised,
                   alignment: Alignment.center,
                   child: Icon(Icons.lock_outline, color: HubColors.accent),
@@ -194,6 +257,7 @@ class _ConsoleHeader extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     'OPERATOR CONSOLE',

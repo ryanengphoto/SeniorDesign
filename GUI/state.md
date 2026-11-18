@@ -1,7 +1,7 @@
 # GUI prototype state
 
-**Last updated:** 2026-11-12  
-**Status:** Software prototype — Flutter operator console with mock (default), Tier-1 PTY serial, and Tier-2 dual-CP2102 serial via WSL **or** Windows COM (`mcu_sim`). Serial against `mcu_sim` is **not** real PCB / MCU / FPGA hardware. A **UART stub** now exists under `Firmware/` (PlatformIO / Black Pill); stub telemetry is still mock (no FPGA/INA219).
+**Last updated:** 2026-11-16  
+**Status:** Software prototype — Flutter operator console with mock (default), Tier-1 PTY serial, and Tier-2 dual-CP2102 serial via WSL **or** Windows COM (`mcu_sim`). Serial against `mcu_sim` is **not** real PCB / MCU / FPGA hardware. Firmware SPI bring-up can surface live port0 HID pending/confirm when Cmod is programmed.
 
 **Run:** `make dev` from `GUI/` → http://127.0.0.1:7357 (mode badge shows `MOCK`).
 
@@ -15,9 +15,10 @@
 - [x] **Tier 2:** Dual CP2102 cross-wire + same `mcu_sim` (headless on WSL 2026-10-15)
 - [x] **Windows serial host path:** `scripts/run_windows_serial.ps1` + COM ports (keeps WSL `linux-serial` / usbipd path)
 - [x] MCU firmware UART stub speaking the same JSON contract (`Firmware/` PlatformIO / Black Pill; mock local state only — see `Firmware/README.md`)
-- [x] Stub GUI demo parity: port 1 authorize@5s / `KEYSTROKE_BURST`@15s + PC13 LED; verified Windows serial on COM3 (`uart_smoke.py` PASS)
+- [x] Stub GUI demo parity: port 1 → `PENDING_HID_CONFIRM`@5s + Confirm keyboard (`confirm_hid`); verified Windows serial on COM3 historically (`uart_smoke.py`)
+- [x] HID confirm-before-allow UX: `PENDING_HID_CONFIRM` + `confirm_hid` modal popup dialog (clean 3-button port card without taking up card space) across protocol / mock / mcu_sim / firmware
 - [x] MCU SPI bring-up bridge (`Firmware/` `fpga_bridge` + `FPGA_SPI_BRINGUP`) — port0 status/VID/PID/class over SPI; clear/manual via `P0_CONTROL` (bench verify with programmed Cmod)
-- [ ] Wire real power telemetry: INA219 `vbus_mv` / `current_ma`
+- [x] Dropped power telemetry: INA219 / vbus_mv / current_ma removed from JSON and protocol models
 - [ ] Forward host commands for all ports + full policy; drop mock dual-mode once default
 - [ ] Verify end-to-end with hardware on the bench
 - [ ] Package native Linux (`make build-linux`) and Windows (`make build-windows` on a Windows host / `scripts/build_windows.ps1`) for demo day
@@ -27,7 +28,7 @@
 - [x] Serial reconnect — auto backoff + Retry; unplug/power-loss must not crash commands
 - [x] Runtime COM / serial port picker in console header (no app restart)
 - [ ] Expand unit tests beyond protocol + smoke widget test
-- [ ] Human-readable USB class names in port cards (hex only today)
+- [x] Human-readable USB device identification and names in port cards (VID/PID lookup table in `usb_names.dart`)
 - [ ] Expand mock / mcu_sim to surface threat codes 1, 3–6 (only 2 and 7 demoed today)
 - [x] Persistent event log (Drift / SQLite) — last 200, wall-clock `YYYY-MM-DD HH:MM:SS`; clear all / delete one / filter by port
 - [x] Database page sort (newest/oldest/port/threat) + show 50 at a time with Show more
@@ -116,6 +117,7 @@ These parts are functional prototype code, not placeholders.
 | Event log DB | `lib/db/event_log_*.dart` | Drift SQLite — last 200, wall-clock timestamps; clear all / delete one |
 | Console shell | `lib/console_shell.dart` | Logo + “Peripheral Interface Security System”; Dashboard / Database nav |
 | Dashboard | `lib/dashboard_page.dart`, `lib/widgets/*` | Vertical port rows + sidebar event log |
+| Keyboard confirm dialog | `lib/widgets/keyboard_confirm_dialog.dart` | Popup on keyboard detection / pending confirm; replaces per-card button |
 | Database viewer | `lib/database_page.dart` | Full event table; sort + port filter; 50-row pages / Show more; Menu → Load / Export / Clear (load is view-only CSV) |
 
 ### Protocol (host ↔ device contract)
@@ -137,15 +139,14 @@ SoT: `GUI/app/lib/protocol.dart` (see also `Docs/firmwmare_slop.md` §4).
 | `MockDevice` | Entire hub — in-process Dart only |
 | `mcu_sim.py` | Entire MCU — scripted UART peer; **SERIAL badge does not mean PCB** |
 | Port 0 at startup | Hard-coded SanDisk-like flash (`0x0781:0x5583`) |
-| Port 1 demo script | Timed keyboard authorize → `KEYSTROKE_BURST` |
+| Port 1 demo script | Timed HID → `PENDING_HID_CONFIRM`; Confirm keyboard → authorized |
 | Current readings | Random ±3 mA jitter on powered ports |
-| Isolate / Restore / Clear (mock/sim) | Local state only — no GPIO / eFuse / MUX / FPGA. Isolate only on AUTHORIZED (not system QUARANTINED). Clear = latch only; Restore re-enables. |
+| Isolate / Restore / Clear / Confirm HID (mock/sim) | Local state only — no GPIO / eFuse / MUX / FPGA unless live SPI peer. Isolate only on AUTHORIZED. Clear ≠ HID approve. |
 
 ### What the UI implies but is not true yet (mock or mcu_sim)
 
-- “Live telemetry from the hub management plane” — live from **mock** or **mcu_sim**, not the PCB
-- VBUS/current — still in protocol/mock JSON; **hidden in port cards** until sensing scope is decided
-- Threat detection — only port 1 scripted `KEYSTROKE_BURST`; other codes exist in enum but are not triggered
+- Mode badge `SERIAL` / port data — live from **mock** or **mcu_sim**, not the PCB (unless Black Pill UART stub is the peer)
+- Threat detection — mock/mcu_sim demo pending HID confirm; other threat codes exist in enum / REPL (`burst`, `hid`) but are not the default script
 
 ---
 

@@ -8,20 +8,33 @@ import 'widgets/event_log.dart';
 import 'widgets/port_card.dart';
 
 /// Live port console (no chrome — [ConsoleShell] owns the header).
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   const DashboardPage({
     super.key,
     required this.hub,
     required this.telemetry,
     required this.events,
+    this.onRequestConfirmKeyboard,
   });
 
   final HubService hub;
   final TelemetryFrame? telemetry;
   final List<SecurityEvent> events;
+  final void Function(PortStatus port)? onRequestConfirmKeyboard;
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  bool _showLog = true;
 
   @override
   Widget build(BuildContext context) {
+    final telemetry = widget.telemetry;
+    final hub = widget.hub;
+    final events = widget.events;
+    final onRequestConfirmKeyboard = widget.onRequestConfirmKeyboard;
     final ports = telemetry?.ports ??
         List.generate(
           4,
@@ -29,8 +42,6 @@ class DashboardPage extends StatelessWidget {
             port: i,
             state: PortState.disconnected,
             threatCode: 0,
-            vbusMv: 0,
-            currentMa: 0,
             vid: '0x0000',
             pid: '0x0000',
             devClass: '0x00',
@@ -42,37 +53,76 @@ class DashboardPage extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1400),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final wide = constraints.maxWidth >= 960;
               final portsPane = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Downstream ports',
-                    style: GoogleFonts.ibmPlexSans(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Downstream ports',
+                            style: GoogleFonts.ibmPlexSans(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (_telemetrySubtitle(hub.mode) case final subtitle?) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              subtitle,
+                              style: GoogleFonts.ibmPlexSans(
+                                fontSize: 13,
+                                color: HubColors.muted,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      TextButton.icon(
+                        onPressed: () => setState(() => _showLog = !_showLog),
+                        icon: Icon(
+                          _showLog
+                              ? Icons.view_sidebar_outlined
+                              : Icons.view_sidebar,
+                          size: 16,
+                        ),
+                        label: Text(_showLog ? 'Hide log' : 'Show log'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: HubColors.muted,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          textStyle: GoogleFonts.ibmPlexSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _telemetrySubtitle(hub.mode),
-                    style: GoogleFonts.ibmPlexSans(
-                      fontSize: 13,
-                      color: HubColors.muted,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
                   Expanded(
                     child: ListView.separated(
                       itemCount: ports.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
+                        final port = ports[index];
                         return PortCard(
-                          port: ports[index],
+                          port: port,
                           onCommand: hub.handleCommand,
+                          onRequestConfirmKeyboard:
+                              onRequestConfirmKeyboard != null
+                                  ? () => onRequestConfirmKeyboard(port)
+                                  : null,
                         );
                       },
                     ),
@@ -84,7 +134,12 @@ class DashboardPage extends StatelessWidget {
                 events: events,
                 onClearAll: hub.clearAllEvents,
                 onDeleteEvent: hub.deleteEvent,
+                onClose: () => setState(() => _showLog = false),
               );
+
+              if (!_showLog) {
+                return portsPane;
+              }
 
               if (!wide) {
                 return Column(
@@ -115,15 +170,13 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
-String _telemetrySubtitle(String mode) {
+String? _telemetrySubtitle(String mode) {
   switch (mode.toLowerCase()) {
-    case 'serial':
-      return 'Live telemetry over UART (peer may be mcu_sim — not the PCB).';
     case 'serial_error':
       return 'Serial link down — auto-retrying; use Retry or check cable/power.';
     case 'serial_reconnecting':
-      return 'Reconnecting to UART — waiting for peer / hub power.';
+      return 'Reconnecting — waiting for peer / hub power.';
     default:
-      return 'Live telemetry from the hub management plane (mock).';
+      return null;
   }
 }

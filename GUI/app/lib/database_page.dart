@@ -248,8 +248,8 @@ class _DatabasePageState extends State<DatabasePage> {
                               ? 'Viewing file “$_loadedLabel” — '
                                   'showing ${events.length} of $filteredCount'
                                   '${filteredCount != total ? ' (filtered from $total)' : ''}'
-                              : 'Live local SQLite log — '
-                                  'showing ${events.length} of $filteredCount'
+                              : 
+                                  'Showing ${events.length} of $filteredCount'
                                   '${filteredCount != total ? ' (filtered from $total)' : ''}',
                           style: GoogleFonts.ibmPlexSans(
                             fontSize: 13,
@@ -546,7 +546,15 @@ class _DatabasePageState extends State<DatabasePage> {
                                             DataCell(
                                               Text('Port ${event.port + 1}'),
                                             ),
-                                            DataCell(Text(event.threatName)),
+                                            DataCell(
+                                              Text(
+                                                event.threatCode > 0
+                                                    ? ThreatCode.summaryFor(
+                                                        event.threatCode,
+                                                      )
+                                                    : event.threatName,
+                                              ),
+                                            ),
                                             DataCell(
                                               Text('0x${event.threatCode}'),
                                             ),
@@ -633,6 +641,13 @@ class _DatabasePageState extends State<DatabasePage> {
                                 ),
                                 child: Center(
                                   child: TextButton(
+                                    style: TextButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                    ),
                                     onPressed: () {
                                       setState(() {
                                         _visibleLimit += DatabasePage.pageSize;
@@ -642,6 +657,7 @@ class _DatabasePageState extends State<DatabasePage> {
                                       'Show more '
                                       '(${filteredCount - events.length} remaining)',
                                       style: GoogleFonts.ibmPlexSans(
+                                        fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),

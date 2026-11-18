@@ -8,15 +8,13 @@ import 'protocol.dart';
 ///
 /// Demo script:
 /// - Port 0 starts as an authorized flash drive
-/// - Port 1: keyboard authorized (~5s) → KEYSTROKE_BURST (~15s)
+/// - Port 1: HID → PENDING_HID_CONFIRM (~5s); operator Confirm keyboard
 class MockDevice implements HubDevice {
   MockDevice() {
     _ports = [
       _Port(
         port: 0,
         state: PortState.authorized,
-        vbusMv: 5020,
-        currentMa: 42,
         vid: '0x0781',
         pid: '0x5583',
         devClass: '0x00',
@@ -84,7 +82,6 @@ class MockDevice implements HubDevice {
   @override
   TelemetryFrame getTelemetry() {
     _advanceScript();
-    _jitterReadings();
     return TelemetryFrame(
       timestampMs: elapsedMs,
       ports: _ports.map(_toStatus).toList(growable: false),
@@ -97,8 +94,6 @@ class MockDevice implements HubDevice {
     port.manuallyBlocked = true;
     port.state = PortState.manualBlocked;
     port.threatCode = ThreatCode.manualHostKill.value;
-    port.vbusMv = 0;
-    port.currentMa = 0;
     return (
       port.state,
       port.threatCode,
@@ -112,8 +107,6 @@ class MockDevice implements HubDevice {
     port.manuallyBlocked = false;
     port.threatCode = ThreatCode.noFault.value;
     port.state = PortState.authorized;
-    port.vbusMv = 5020;
-    port.currentMa = 30 + _rng.nextInt(51);
     port.vid = '0x046D';
     port.pid = '0xC31C';
     port.devClass = '0x00';
@@ -128,6 +121,13 @@ class MockDevice implements HubDevice {
   @override
   (PortState, int, String)? clearFault(int portId) {
     final port = _ports[portId];
+    if (port.state == PortState.pendingHidConfirm) {
+      return (
+        port.state,
+        port.threatCode,
+        'Clear fault ignored on port $portId — use Confirm keyboard',
+      );
+    }
     if (port.threatCode == ThreatCode.noFault.value) {
       return null;
     }
@@ -158,13 +158,27 @@ class MockDevice implements HubDevice {
     );
   }
 
+  @override
+  (PortState, int, String)? confirmHid(int portId) {
+    final port = _ports[portId];
+    if (port.state != PortState.pendingHidConfirm) {
+      return null;
+    }
+    port.manuallyBlocked = false;
+    port.threatCode = ThreatCode.noFault.value;
+    port.state = PortState.authorized;
+    return (
+      port.state,
+      port.threatCode,
+      'Port $portId HID confirmed by operator',
+    );
+  }
+
   PortStatus _toStatus(_Port port) {
     return PortStatus(
       port: port.port,
       state: port.state,
       threatCode: port.threatCode,
-      vbusMv: port.vbusMv,
-      currentMa: port.currentMa,
       vid: port.vid,
       pid: port.pid,
       devClass: port.devClass,
@@ -172,40 +186,25 @@ class MockDevice implements HubDevice {
     );
   }
 
-  void _jitterReadings() {
-    for (final port in _ports) {
-      if (port.vbusMv > 0 && port.state == PortState.authorized) {
-        port.currentMa = max(0, port.currentMa + _rng.nextInt(7) - 3);
-      }
-    }
-  }
-
   void _advanceScript() {
     final elapsedS = DateTime.now().difference(_startTime).inMilliseconds / 1000.0;
     final port1 = _ports[1];
 
-    if (port1.manuallyBlocked || port1.state == PortState.quarantined) {
+    if (port1.manuallyBlocked ||
+        port1.state == PortState.quarantined ||
+        port1.state == PortState.pendingHidConfirm ||
+        port1.state == PortState.authorized) {
       return;
     }
 
     if (_scriptStage == 0 && elapsedS >= 5) {
-      port1.state = PortState.authorized;
-      port1.vbusMv = 5020;
+      port1.state = PortState.pendingHidConfirm;
+      port1.threatCode = ThreatCode.noFault.value;
       port1.vid = '0x046D';
       port1.pid = '0xC31C';
       port1.devClass = '0x00';
       port1.intClass = '0x03';
-      port1.currentMa = 55;
       _scriptStage = 1;
-      return;
-    }
-
-    if (_scriptStage == 1 && elapsedS >= 15) {
-      port1.state = PortState.quarantined;
-      port1.threatCode = ThreatCode.keystrokeBurst.value;
-      port1.vbusMv = 0;
-      port1.currentMa = 0;
-      _scriptStage = 2;
     }
   }
 }
@@ -214,8 +213,6 @@ class _Port {
   _Port({
     required this.port,
     this.state = PortState.disconnected,
-    this.vbusMv = 0,
-    this.currentMa = 0,
     this.vid = '0x0000',
     this.pid = '0x0000',
     this.devClass = '0x00',
@@ -225,8 +222,6 @@ class _Port {
   final int port;
   PortState state;
   int threatCode = 0;
-  int vbusMv;
-  int currentMa;
   String vid;
   String pid;
   String devClass;

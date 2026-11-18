@@ -9,13 +9,15 @@ enum PortState {
   disconnected,
   authorized,
   quarantined,
-  manualBlocked;
+  manualBlocked,
+  pendingHidConfirm;
 
   String get wireName => switch (this) {
         PortState.disconnected => 'DISCONNECTED',
         PortState.authorized => 'AUTHORIZED',
         PortState.quarantined => 'QUARANTINED',
         PortState.manualBlocked => 'MANUAL_BLOCKED',
+        PortState.pendingHidConfirm => 'PENDING_HID_CONFIRM',
       };
 
   String get label => wireName.replaceAll('_', ' ');
@@ -43,6 +45,7 @@ enum ThreatCode {
   const ThreatCode(this.value);
   final int value;
 
+  /// Wire / log identifier (fabric §6).
   String get name => switch (this) {
         ThreatCode.noFault => 'NO_FAULT',
         ThreatCode.unauthorizedHid => 'UNAUTHORIZED_HID',
@@ -54,6 +57,34 @@ enum ThreatCode {
         ThreatCode.manualHostKill => 'MANUAL_HOST_KILL',
       };
 
+  /// Short operator-facing title.
+  String get summary => switch (this) {
+        ThreatCode.noFault => 'No fault',
+        ThreatCode.unauthorizedHid => 'Unauthorized HID',
+        ThreatCode.keystrokeBurst => 'Keystroke burst',
+        ThreatCode.cooldownBurst => 'Cooldownoldown burst',
+        ThreatCode.descriptorOverflow => 'Descriptor overflow',
+        ThreatCode.crcTokenFault => 'CRC / token fault',
+        ThreatCode.bitStuffError => 'Bit-stuff error',
+        ThreatCode.manualHostKill => 'Manual isolate',
+      };
+
+  /// One-line explanation of what tripped (fabric threat table).
+  String get detail => switch (this) {
+        ThreatCode.noFault => 'Normal operation',
+        ThreatCode.unauthorizedHid =>
+          'HID interface (class 0x03) on a storage-only port',
+        ThreatCode.keystrokeBurst =>
+          'Keystrokes faster than the human typing bound',
+        ThreatCode.cooldownBurst =>
+          'Keystrokes during the post-enumeration cooldown window',
+        ThreatCode.descriptorOverflow =>
+          'USB descriptor length overflow or mismatch',
+        ThreatCode.crcTokenFault => 'USB token or data CRC failure',
+        ThreatCode.bitStuffError => 'USB bit-stuffing violation on the wire',
+        ThreatCode.manualHostKill => 'Operator isolated this port',
+      };
+
   static ThreatCode fromValue(int value) {
     return ThreatCode.values.firstWhere(
       (code) => code.value == value,
@@ -62,17 +93,62 @@ enum ThreatCode {
   }
 
   static String nameFor(int value) => fromValue(value).name;
+
+  static String summaryFor(int value) => fromValue(value).summary;
+
+  static String detailFor(int value) => fromValue(value).detail;
+}
+
+/// USB class code labels for operator display (bDeviceClass / bInterfaceClass).
+abstract final class UsbClass {
+  static int? _parse(String hex) {
+    final normalized = hex.trim().toLowerCase();
+    if (normalized.startsWith('0x')) {
+      return int.tryParse(normalized.substring(2), radix: 16);
+    }
+    return int.tryParse(normalized, radix: 16) ?? int.tryParse(normalized);
+  }
+
+  /// Short label for notable classes; null for 0x00 / unknown (show hex only).
+  static String? shortNameForHex(String hex) {
+    final value = _parse(hex);
+    if (value == null || value == 0x00) {
+      return null;
+    }
+    return switch (value) {
+      0x01 => 'Audio',
+      0x02 => 'CDC',
+      0x03 => 'HID',
+      0x06 => 'Image',
+      0x07 => 'Printer',
+      0x08 => 'Storage',
+      0x09 => 'Hub',
+      0x0A => 'CDC',
+      0x0E => 'Video',
+      0xE0 => 'Wireless',
+      0xFF => 'Vendor',
+      _ => null,
+    };
+  }
+
+  /// Compact single-line value: `0x03 HID` or just `0x00`.
+  static String display(String hex) {
+    final label = shortNameForHex(hex);
+    return label == null ? hex : '$hex $label';
+  }
 }
 
 enum CommandType {
   isolatePort,
   restorePort,
-  clearFault;
+  clearFault,
+  confirmHid;
 
   String get wireName => switch (this) {
         CommandType.isolatePort => 'isolate_port',
         CommandType.restorePort => 'restore_port',
         CommandType.clearFault => 'clear_fault',
+        CommandType.confirmHid => 'confirm_hid',
       };
 
   static CommandType? fromWireName(String name) {
@@ -119,8 +195,6 @@ class PortStatus {
     required this.port,
     required this.state,
     required this.threatCode,
-    required this.vbusMv,
-    required this.currentMa,
     required this.vid,
     required this.pid,
     required this.devClass,
@@ -130,8 +204,6 @@ class PortStatus {
   final int port;
   final PortState state;
   final int threatCode;
-  final int vbusMv;
-  final int currentMa;
   final String vid;
   final String pid;
   final String devClass;
@@ -140,8 +212,6 @@ class PortStatus {
   PortStatus copyWith({
     PortState? state,
     int? threatCode,
-    int? vbusMv,
-    int? currentMa,
     String? vid,
     String? pid,
     String? devClass,
@@ -151,8 +221,6 @@ class PortStatus {
       port: port,
       state: state ?? this.state,
       threatCode: threatCode ?? this.threatCode,
-      vbusMv: vbusMv ?? this.vbusMv,
-      currentMa: currentMa ?? this.currentMa,
       vid: vid ?? this.vid,
       pid: pid ?? this.pid,
       devClass: devClass ?? this.devClass,
@@ -164,8 +232,6 @@ class PortStatus {
         'port': port,
         'state': state.wireName,
         'threat_code': threatCode,
-        'vbus_mv': vbusMv,
-        'current_ma': currentMa,
         'vid': vid,
         'pid': pid,
         'dev_class': devClass,
@@ -177,8 +243,6 @@ class PortStatus {
       port: json['port'] as int,
       state: PortState.fromWireName(json['state'] as String),
       threatCode: json['threat_code'] as int,
-      vbusMv: json['vbus_mv'] as int,
-      currentMa: json['current_ma'] as int,
       vid: json['vid'] as String,
       pid: json['pid'] as String,
       devClass: json['dev_class'] as String,

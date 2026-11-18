@@ -247,6 +247,7 @@ class HubService {
         CommandType.isolatePort => _device.isolatePort(port),
         CommandType.restorePort => _device.restorePort(port),
         CommandType.clearFault => _device.clearFault(port),
+        CommandType.confirmHid => _device.confirmHid(port),
       };
     } on Object catch (e) {
       result = (
@@ -329,17 +330,28 @@ class HubService {
         continue;
       }
 
+      final threat = ThreatCode.fromValue(port.threatCode);
       final String message;
-      if (port.threatCode == 2 && port.state == PortState.quarantined) {
-        message = 'Keystroke burst detected on port ${port.port}';
-      } else if (port.threatCode == 1) {
-        message = 'Unauthorized HID detected on port ${port.port}';
+      if (threat == ThreatCode.keystrokeBurst &&
+          port.state == PortState.quarantined) {
+        message =
+            'Port ${port.port + 1}: ${threat.detail} — port quarantined';
+      } else if (threat == ThreatCode.unauthorizedHid) {
+        message =
+            'Port ${port.port + 1}: unauthorized ${UsbClass.display(port.intClass)} '
+            'on storage-only port';
+      } else if (port.state == PortState.pendingHidConfirm) {
+        message =
+            'Port ${port.port + 1}: HID device waiting for operator confirm';
       } else if (port.state == PortState.authorized &&
           prevState == PortState.disconnected) {
-        message = 'Device authorized on port ${port.port}';
+        message = 'Device authorized on port ${port.port + 1}';
+      } else if (port.threatCode > 0) {
+        message =
+            'Port ${port.port + 1}: ${threat.summary} — ${threat.detail}';
       } else {
         message =
-            'Port ${port.port} changed to ${port.state.wireName} (${ThreatCode.nameFor(port.threatCode)})';
+            'Port ${port.port + 1} changed to ${port.state.wireName}';
       }
 
       unawaited(

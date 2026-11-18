@@ -58,4 +58,7 @@ abstract class HubDevice {
   (PortState, int, String) restorePort(int portId);
 
   (PortState, int, String)? clearFault(int portId);
+
+  /// Operator confirms HID keyboard/mouse on a pending-confirm port.
+  (PortState, int, String)? confirmHid(int portId);
 }
