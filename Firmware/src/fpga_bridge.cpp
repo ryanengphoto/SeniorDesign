@@ -60,15 +60,44 @@ void fpga_read_port0(FpgaPortBlock *out) {
   fpga_read_port(0, out);
 }
 
+static uint8_t fpga_policy_bits(uint8_t port) {
+  if (port >= 4) {
+    return FPGA_POLICY_STORAGE_ONLY;
+  }
+  const uint8_t addr = FPGA_PORT_REG_BASE(port);
+  return (uint8_t)(fpga_spi_read8(addr) & FPGA_CTRL_POLICY_MASK);
+}
+
 void fpga_clear_fault(uint8_t port) {
   if (port >= 4) {
     return;
   }
   const uint8_t addr = FPGA_PORT_REG_BASE(port);
-  // Pulse bit6; leave manual_kill cleared for a clean clear.
-  fpga_spi_write8(addr, (uint8_t)FPGA_CTRL_CLEAR_FAULT);
-  // Deassert control so clear is one-shot and manual kill is not latched.
-  fpga_spi_write8(addr, 0x00);
+  const uint8_t policy = fpga_policy_bits(port);
+  // Pulse bit6; preserve policy; leave manual_kill cleared.
+  fpga_spi_write8(addr, (uint8_t)(FPGA_CTRL_CLEAR_FAULT | policy));
+  fpga_spi_write8(addr, policy);
+}
+
+void fpga_approve_hid(uint8_t port) {
+  if (port >= 4) {
+    return;
+  }
+  const uint8_t addr = FPGA_PORT_REG_BASE(port);
+  const uint8_t policy = fpga_policy_bits(port);
+  fpga_spi_write8(addr, (uint8_t)(FPGA_CTRL_APPROVE_HID | policy));
+  fpga_spi_write8(addr, policy);
+}
+
+void fpga_set_policy(uint8_t port, uint8_t policy) {
+  if (port >= 4) {
+    return;
+  }
+  const uint8_t addr = FPGA_PORT_REG_BASE(port);
+  const uint8_t cur = fpga_spi_read8(addr);
+  const uint8_t next =
+      (uint8_t)((cur & (uint8_t)~FPGA_CTRL_POLICY_MASK) | (policy & FPGA_CTRL_POLICY_MASK));
+  fpga_spi_write8(addr, next);
 }
 
 void fpga_set_manual_kill(uint8_t port, bool enable) {
@@ -76,5 +105,6 @@ void fpga_set_manual_kill(uint8_t port, bool enable) {
     return;
   }
   const uint8_t addr = FPGA_PORT_REG_BASE(port);
-  fpga_spi_write8(addr, enable ? (uint8_t)FPGA_CTRL_MANUAL_KILL : 0x00);
+  const uint8_t policy = fpga_policy_bits(port);
+  fpga_spi_write8(addr, enable ? (uint8_t)(FPGA_CTRL_MANUAL_KILL | policy) : policy);
 }

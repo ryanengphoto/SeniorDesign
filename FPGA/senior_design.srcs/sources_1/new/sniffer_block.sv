@@ -5,13 +5,15 @@
 // Description:
 //   Per-port USB packet sniffer (48 MHz domain). Soft RX via usb_packet_frontend,
 //   enumeration_analysis telemetry (VID/PID/classes), isolation latch on CRC
-//   fault (threat 0x5) and optional storage-only HID class kill (threat 0x1).
+//   fault (threat 0x5) and policy-gated HID handling:
+//     policy 0 STORAGE_ONLY  → sticky UNAUTHORIZED_HID (0x1)
+//     policy 1 HID_CONFIRM   → pending hold until APPROVE_HID (status bit)
+//     policy 2 HID_ALLOW     → no auto HID hold
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
 
 module sniffer_block #(
-    parameter bit POLICY_STORAGE_ONLY = 1'b1,
     // usb_line_attach: 0=auto FS/LS from J, 1=force FS, 2=force LS (not HS)
     parameter int SPEED_MODE = 0
 ) (
@@ -23,6 +25,8 @@ module sniffer_block #(
 
     input  logic       clear_fault,
     input  logic       manual_kill,
+    input  logic [2:0] policy_mode,
+    input  logic       approve_hid,
 
     output logic       pkt_start,
     output logic       pkt_end,
@@ -54,6 +58,11 @@ module sniffer_block #(
     logic        speed_valid;
     logic        intf_class_valid_d;
     logic        hid_threat_pulse;
+    logic        hid_pending_set;
+    logic        hid_pending;
+    logic        hid_approved;
+    logic        iso_kill;
+    logic [3:0]  iso_threat;
     logic        threat_pulse;
     logic [3:0]  threat_code_in;
 
@@ -111,17 +120,48 @@ module sniffer_block #(
         .attached         (enum_attached)
     );
 
-    // Rising edge of latched HID interface class on a storage-only port.
+    // Rising edge of latched HID interface class.
     always_ff @(posedge clk_48m) begin
         if (rst) intf_class_valid_d <= 1'b0;
         else     intf_class_valid_d <= intf_class_valid;
     end
 
+    wire hid_rise = speed_valid &&
+                    intf_class_valid && !intf_class_valid_d &&
+                    (intf_class == 8'h03);
+
     // Mute policy until attach speed is locked (avoids LS false CRC on FS RX).
-    assign hid_threat_pulse = speed_valid &&
-                              POLICY_STORAGE_ONLY &&
-                              intf_class_valid && !intf_class_valid_d &&
-                              (intf_class == 8'h03);
+    assign hid_threat_pulse = hid_rise &&
+                              (policy_mode == `CTRL_POLICY_STORAGE_ONLY);
+    assign hid_pending_set  = hid_rise &&
+                              (policy_mode == `CTRL_POLICY_HID_CONFIRM) &&
+                              !hid_approved;
+
+    // HID-after-confirm session latch.
+    // - Disconnect clears pending + approval (next plug must confirm).
+    // - Manual kill also ends the session: isolate→restore must not keep a
+    //   prior APPROVE_HID (else a swapped rubber ducky rides AUTHORIZED).
+    // - clear_fault does NOT release pending / does NOT approve.
+    // - After manual_kill drops, re-arm pending if a HID is still enumerated.
+    always_ff @(posedge clk_48m) begin
+        if (rst || disconnect_stb) begin
+            hid_pending  <= 1'b0;
+            hid_approved <= 1'b0;
+        end else if (manual_kill) begin
+            hid_pending  <= 1'b0;
+            hid_approved <= 1'b0;
+        end else if (approve_hid) begin
+            hid_pending  <= 1'b0;
+            hid_approved <= 1'b1;
+        end else if (hid_pending_set) begin
+            hid_pending  <= 1'b1;
+        end else if (!hid_pending && !hid_approved &&
+                     (policy_mode == `CTRL_POLICY_HID_CONFIRM) &&
+                     speed_valid && intf_class_valid &&
+                     (intf_class == 8'h03)) begin
+            hid_pending  <= 1'b1;
+        end
+    end
 
     wire crc_threat = speed_valid & crc_fault;
 
@@ -137,31 +177,53 @@ module sniffer_block #(
         .threat_code_in(threat_code_in),
         .manual_kill   (manual_kill),
         .clear_fault   (clear_fault),
-        .kill          (kill),
-        .threat_code   (threat_code)
+        .kill          (iso_kill),
+        .threat_code   (iso_threat)
     );
+
+    // HID_CONFIRM: hold kill from attach until we know the interface is *not*
+    // HID, or until APPROVE_HID. Closing the pre-class window matters on a
+    // wired mux/eFuse — otherwise the host fully enumerates (Rubber Ducky)
+    // while UART still shows AUTHORIZED / "Device attached", and the USB bus
+    // storm can knock over a CP2102 on the same hub.
+    // Also covers isolate→restore before the hid_pending FF re-arms.
+    wire hid_confirm_hold =
+        (policy_mode == `CTRL_POLICY_HID_CONFIRM) &&
+        attached && speed_valid &&
+        !hid_approved &&
+        !manual_kill &&
+        (!intf_class_valid || (intf_class == 8'h03));
+
+    // Pending HID hold ORs into kill; threat_code stays the sticky ISO code
+    // (0 while only pending) — GUI keys off STATUS HID-pending bit / UART state.
+    assign kill        = iso_kill | hid_pending | hid_confirm_hold;
+    assign threat_code = iso_threat;
 
     // Midterm Table 26 / Fig. 19 port-status byte (provisional bit map).
     always_comb begin
         port_status = 8'h00;
-        port_status[`PORT_STATUS_ATTACHED_BIT]       = attached;
-        port_status[`PORT_STATUS_ISOLATED_BIT]       = kill;
-        port_status[`PORT_STATUS_THREAT_PRESENT_BIT] = (threat_code != `THREAT_NO_FAULT);
+        port_status[`PORT_STATUS_ATTACHED_BIT]        = attached;
+        port_status[`PORT_STATUS_HID_PENDING_BIT]     =
+            hid_pending | hid_confirm_hold;
+        port_status[`PORT_STATUS_ISOLATED_BIT]        = kill;
+        port_status[`PORT_STATUS_THREAT_PRESENT_BIT]  =
+            (iso_threat != `THREAT_NO_FAULT) | hid_pending | hid_confirm_hold;
     end
 
 `ifndef VERILATOR
     // synthesis translate_off
-    sniffer_block_sva #(
-        .POLICY_STORAGE_ONLY(POLICY_STORAGE_ONLY)
-    ) u_sniff_sva (
+    sniffer_block_sva u_sniff_sva (
         .clk               (clk_48m),
         .rst               (rst),
         .speed_valid       (speed_valid),
         .crc_fault         (crc_fault),
+        .policy_mode       (policy_mode),
         .intf_class_valid  (intf_class_valid),
         .intf_class_valid_d(intf_class_valid_d),
         .intf_class        (intf_class),
         .hid_threat_pulse  (hid_threat_pulse),
+        .hid_pending       (hid_pending),
+        .hid_confirm_hold  (hid_confirm_hold),
         .threat_pulse      (threat_pulse),
         .threat_code_in    (threat_code_in),
         .attached          (attached),

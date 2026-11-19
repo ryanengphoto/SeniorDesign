@@ -47,18 +47,26 @@
 // Pn_CONTROL bits (fabric_slop + register_file)
 #define FPGA_CTRL_MANUAL_KILL (1u << 7)
 #define FPGA_CTRL_CLEAR_FAULT (1u << 6)
+#define FPGA_CTRL_APPROVE_HID (1u << 5)
+#define FPGA_CTRL_POLICY_MASK 0x07u
+#define FPGA_POLICY_STORAGE_ONLY 0x0u
+#define FPGA_POLICY_HID_CONFIRM 0x1u
+#define FPGA_POLICY_HID_ALLOW 0x2u
 
-// Live RTL pack_spi_status (register_file.sv) — NOT the older prose "Configured" table alone:
+// Live RTL pack_spi_status (register_file.sv):
 //   [7] kill/isolated
 //   [6] attached
-//   [5] 0 (for now)
+//   [5] 0 (configured unused)
+//   [4] HID pending confirm
 //   [3:0] threat code
 #define FPGA_STATUS_KILL_BIT 7
 #define FPGA_STATUS_ATTACHED_BIT 6
+#define FPGA_STATUS_HID_PENDING_BIT 4
 #define FPGA_STATUS_THREAT_MASK 0x0Fu
 
 #define FPGA_STATUS_KILL(s) (((s) >> FPGA_STATUS_KILL_BIT) & 0x1u)
 #define FPGA_STATUS_ATTACHED(s) (((s) >> FPGA_STATUS_ATTACHED_BIT) & 0x1u)
+#define FPGA_STATUS_HID_PENDING(s) (((s) >> FPGA_STATUS_HID_PENDING_BIT) & 0x1u)
 #define FPGA_STATUS_THREAT(s) ((s)&FPGA_STATUS_THREAT_MASK)
 
 // Selfstim demo expectations (FPGA/bringup.md)

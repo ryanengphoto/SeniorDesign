@@ -28,10 +28,16 @@ uint8_t fpga_read_sys_status();
 void fpga_read_port(uint8_t port, FpgaPortBlock *out);
 void fpga_read_port0(FpgaPortBlock *out);
 
-// Pulse Pn_CONTROL[6] clear_fault (one-cycle pulse on FPGA).
+// Pulse Pn_CONTROL[6] clear_fault (preserves policy[2:0]).
 void fpga_clear_fault(uint8_t port);
 
-// Level Pn_CONTROL[7] manual_kill.
+// Pulse Pn_CONTROL[5] approve_hid (HID-after-confirm release; preserves policy).
+void fpga_approve_hid(uint8_t port);
+
+// Set Pn_CONTROL[2:0] policy mode (storage-only / hid-confirm / hid-allow).
+void fpga_set_policy(uint8_t port, uint8_t policy);
+
+// Level Pn_CONTROL[7] manual_kill (preserves policy[2:0]).
 void fpga_set_manual_kill(uint8_t port, bool enable);
 
 static inline uint16_t fpga_port_vid(const FpgaPortBlock &b) {

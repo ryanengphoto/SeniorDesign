@@ -6,13 +6,12 @@ Management-plane firmware for the hardware-secure USB hub. Speaks newline-delimi
 
 | Field / path | Default build (`blackpill_f411ce`, `FPGA_SPI_BRINGUP`) | Mock build (`blackpill_uart_mock`) |
 | --- | --- | --- |
-| Port0 `state` / `threat_code` / VID / PID / classes | **LIVE** SPI from FPGA | **MOCK** scripted |
-| Port0 `vbus_mv` / `current_ma` | **MOCK** (zeros; no INA219) | **MOCK** |
-| Ports 1–3 | Idle / disconnected (**MOCK**) | Timed port-1 demo (**MOCK**) |
-| GUI `isolate` / `clear_fault` on port0 | **LIVE** SPI `P0_CONTROL` | Local mock only |
-| Human-readable `SPI LIVE …` UART lines | Yes (~5 Hz) | No |
+| Ports 0–3 `state` / `threat_code` / VID / PID / classes | **LIVE** SPI from FPGA (prototype) | Port0 scripted; timed port-1 HID demo |
+| `vbus_mv` / `current_ma` | Omitted / no INA219 | Omitted |
+| GUI `isolate` / `clear_fault` / `confirm_hid` | **LIVE** SPI `Pn_CONTROL` (all ports; policy preserved) | Local mock only |
+| Human-readable `SPI LIVE …` UART lines | Yes (~5 Hz), compact 4-port status | No |
 
-Do not treat a SERIAL GUI badge as “full carrier / sensors / 4-port policy.”
+Prototype soft-tap bring-up — not production carrier firmware. No power sensors yet.
 
 ## Hardware paths
 
@@ -21,7 +20,9 @@ Do not treat a SERIAL GUI badge as “full carrier / sensors / 4-port policy.”
 | Black Pill **USB-C** | Power + DFU flash |
 | **CP2102** (second PC COM) | Host UART @ 115200 8-N-1 |
 | **Cmod S7** USB | FPGA power + JTAG program (`make -C FPGA prog`) |
-| SPI jumpers | MCU SPI1 ↔ Cmod Pmod JA |
+| SPI jumpers | MCU SPI1 ↔ Cmod DIP **PIO40–43** (see `wiring.md`) |
+
+**Nucleo alternate:** `CubeIDEProject/Group19_MCU_Demo/` targets **NUCLEO-F411RE** with **SPI2 (PB12–15)** + **LD2 on PA5** and **USART1 PA9/PA10 ↔ CP2102** (same UART pins as Black Pill). See **MCU option B** in [`wiring.md`](../wiring.md).
 
 ### Provisional UART jumpers (`include/protocol.h`)
 
@@ -35,15 +36,15 @@ Do **not** cross VCC when both ends are USB-powered.
 
 ### Provisional SPI jumpers (`include/fpga_spi.h`) — Cmod stand-alone
 
-| Black Pill (SPI1) | Direction | Cmod Pmod JA (FPGA) |
+| Black Pill (SPI1) | Direction | Cmod DIP (FPGA) |
 | --- | --- | --- |
-| `PA5` SCK | → | `spi_sck` **J2** |
-| `PA7` MOSI | → | `spi_mosi` **H2** |
-| `PA6` MISO | ← | `spi_miso` **H4** |
-| `PA4` CS_n | → | `spi_cs_n` **F3** |
+| `PA5` SCK | → | `spi_sck` **PIO40** (C5) |
+| `PA7` MOSI | → | `spi_mosi` **PIO41** (A2) |
+| `PA6` MISO | ← | `spi_miso` **PIO42** (B2) |
+| `PA4` CS_n | → | `spi_cs_n` **PIO43** (B1) |
 | `GND` | ↔ | `GND` |
 
-3.3 V I/O only. SPI Mode 0, 1 MHz bring-up clock, 16-bit frames.
+3.3 V I/O only. SPI Mode 0, 1 MHz bring-up clock, 16-bit frames. Full port pin map: [`wiring.md`](../wiring.md).
 
 ## Tools
 
@@ -70,28 +71,29 @@ make -C Firmware upload-mock
 
 ## FPGA SPI bring-up (default firmware)
 
-Prereq: Cmod programmed with `main_wrapper.bit` (`make -C FPGA build && make -C FPGA prog`). After ~20 ms selfstim, port0 should be sticky-killed (LED0 / RGB red).
+Prereq: live-tap bitstream (`make -C FPGA build ENABLE_SELFSTIM=0 && make -C FPGA prog`).
 
-Wire SPI table above + UART to CP2102. Open the CP2102 COM:
+Wire SPI + UART (see `wiring.md`). Open the CP2102 COM:
 
 ```powershell
 py -3 -m serial.tools.miniterm COMx 115200
 ```
 
-**Expected while killed (selfstim):**
+**Expected:**
 
-- Human lines like: `SPI LIVE … P0_STATUS=0xC1 kill=1 att=1 threat=0x1 VID=0x1234 PID=0x5678 … intf=0x03`
-- Then a one-shot: `pulsing P0_CONTROL clear_fault` → `kill=0` (board RGB should go green / LED0 off if clear worked)
-- JSON frames still stream; port0 threat/VID/PID reflect SPI (**power fields remain mock**)
+- Boot: `MCU: FPGA_SPI_BRINGUP — ports 0-3 LIVE SPI; policy=HID_CONFIRM`
+- Lines like: `SPI LIVE sys=0x.. P0=0x..(a=.. k=.. h=.. t=..) P1=... P2=... P3=...`
+- Plug a keyboard on **PIO01/02** (port 0) or **PIO05/06** (port 1): that port’s `a=1`, HID → `h=1`, JSON `PENDING_HID_CONFIRM`
+- JSON streams all four ports from SPI
 
-GUI (optional):
+GUI:
 
 ```powershell
 cd GUI
 .\scripts\run_windows_serial.ps1 -Port COMx
 ```
 
-Host commands on port0 in SPI bring-up mode write FPGA `P0_CONTROL` (`isolate_port` → manual kill bit7; `clear_fault` / `restore_port` → clear pulse).
+Host commands on any port write that channel’s `Pn_CONTROL` (`isolate_port` → bit7; `clear_fault` / `restore_port` → clear pulse; `confirm_hid` → approve bit5). Soft-tap cannot physically mute USB until carrier MUX exists.
 
 ## Mock-only UART (no Cmod)
 

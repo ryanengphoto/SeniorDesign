@@ -29,8 +29,10 @@ Run Make targets from `GUI/` (or `make -C GUI <target>` from the repo root). **D
 | `make tier1-check` | Headless PTY + mcu_sim protocol round-trip |
 | `make stop-sim` | Stop background socat / mcu_sim |
 | `make run-linux` | Run an already-built Linux binary (release preferred, else debug) |
-| `scripts/run_windows_serial.ps1` | **Windows host:** Flutter + `SERIAL_PORT=COMx` (no usbipd) |
-| `scripts/run_windows_mock.ps1` | **Windows host:** Flutter mock |
+| `make windows-serial` / `PORT=COMx` | **Windows host:** run Flutter serial (wraps `scripts/run_windows_serial.ps1`) |
+| `make windows-mock` | **Windows host:** run Flutter mock |
+| `scripts/run_windows_serial.ps1` | Same as `make windows-serial` (direct PowerShell) |
+| `scripts/run_windows_mock.ps1` | Same as `make windows-mock` |
 | `scripts/list_com_ports.ps1` | **Windows host:** list COM ports |
 | `make build-web` / `make build` | Release web → `app/build/web/` |
 | `make build-linux` | Release Linux bundle |

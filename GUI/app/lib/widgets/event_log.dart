@@ -11,11 +11,15 @@ class EventLogPanel extends StatefulWidget {
     required this.events,
     required this.onClearAll,
     required this.onDeleteEvent,
+    this.onClose,
   });
 
   final List<SecurityEvent> events;
   final Future<void> Function() onClearAll;
   final Future<void> Function(int id) onDeleteEvent;
+  final VoidCallback? onClose;
+
+  static const int pageSize = 50;
 
   @override
   State<EventLogPanel> createState() => _EventLogPanelState();
@@ -24,6 +28,7 @@ class EventLogPanel extends StatefulWidget {
 class _EventLogPanelState extends State<EventLogPanel> {
   final _controller = ScrollController();
   bool _paused = false;
+  int _visibleLimit = EventLogPanel.pageSize;
 
   /// null = all ports; otherwise 0–3.
   int? _portFilter;
@@ -36,11 +41,13 @@ class _EventLogPanelState extends State<EventLogPanel> {
         if (!_controller.hasClients) {
           return;
         }
-        _controller.animateTo(
-          _controller.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
+        if (_controller.offset < 20) {
+          _controller.animateTo(
+            0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          );
+        }
       });
     }
   }
@@ -51,13 +58,24 @@ class _EventLogPanelState extends State<EventLogPanel> {
     super.dispose();
   }
 
-  List<SecurityEvent> get _visible {
+  List<SecurityEvent> get _filteredSorted {
     final filter = _portFilter;
-    if (filter == null) {
-      return widget.events;
-    }
-    return widget.events.where((e) => e.port == filter).toList(growable: false);
+    final list = filter == null
+        ? List<SecurityEvent>.from(widget.events)
+        : widget.events.where((e) => e.port == filter).toList();
+    list.sort((a, b) => b.at.compareTo(a.at));
+    return list;
   }
+
+  List<SecurityEvent> get _visible {
+    final all = _filteredSorted;
+    if (all.length <= _visibleLimit) {
+      return all;
+    }
+    return all.take(_visibleLimit).toList(growable: false);
+  }
+
+  bool get _canShowMore => _filteredSorted.length > _visibleLimit;
 
   Future<void> _confirmClearAll() async {
     final confirmed = await showDialog<bool>(
@@ -116,8 +134,10 @@ class _EventLogPanelState extends State<EventLogPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final filtered = _filteredSorted;
     final events = _visible;
     final total = widget.events.length;
+    final filteredCount = filtered.length;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _paused = true),
@@ -152,9 +172,12 @@ class _EventLogPanelState extends State<EventLogPanel> {
                             const SizedBox(height: 2),
                             Text(
                               _portFilter == null
-                                  ? '$total event${total == 1 ? '' : 's'}'
-                                  : '${events.length} of $total'
-                                      ' (port ${_portFilter! + 1})',
+                                  ? (events.length < filteredCount
+                                      ? 'Showing ${events.length} of $filteredCount events'
+                                      : '$total event${total == 1 ? '' : 's'}')
+                                  : (events.length < filteredCount
+                                      ? 'Showing ${events.length} of $filteredCount (port ${_portFilter! + 1})'
+                                      : '$filteredCount of $total (port ${_portFilter! + 1})'),
                               style: GoogleFonts.ibmPlexSans(
                                 fontSize: 12,
                                 color: HubColors.muted,
@@ -256,6 +279,17 @@ class _EventLogPanelState extends State<EventLogPanel> {
                           ),
                         ],
                       ),
+                      if (widget.onClose != null) ...[
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Hide event log',
+                          visualDensity: VisualDensity.compact,
+                          iconSize: 18,
+                          color: HubColors.muted,
+                          onPressed: widget.onClose,
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -317,7 +351,10 @@ class _EventLogPanelState extends State<EventLogPanel> {
                             ),
                           ],
                           onSelected: (value) {
-                            setState(() => _portFilter = value);
+                            setState(() {
+                              _portFilter = value;
+                              _visibleLimit = EventLogPanel.pageSize;
+                            });
                           },
                         ),
                       ),
@@ -371,30 +408,29 @@ class _EventLogPanelState extends State<EventLogPanel> {
                                             color: HubColors.accent,
                                           ),
                                         ),
-                                        const Spacer(),
-                                        Text(
-                                          'Port ${event.port + 1}',
-                                          style: GoogleFonts.ibmPlexMono(
-                                            fontSize: 11,
-                                            color: HubColors.muted,
+                                        if (!event.isSystem) ...[
+                                          const Spacer(),
+                                          Text(
+                                            event.portLabel,
+                                            style: GoogleFonts.ibmPlexSans(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 0.2,
+                                              color: HubColors.text,
+                                            ),
                                           ),
-                                        ),
+                                        ],
                                       ],
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      event.threatName,
-                                      style: GoogleFonts.ibmPlexSans(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
                                       event.message,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                       style: GoogleFonts.ibmPlexSans(
                                         fontSize: 13,
-                                        color: HubColors.muted,
+                                        fontWeight: FontWeight.w500,
+                                        color: HubColors.text,
                                       ),
                                     ),
                                   ],
@@ -417,6 +453,40 @@ class _EventLogPanelState extends State<EventLogPanel> {
                       },
                     ),
             ),
+            if (_canShowMore)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                decoration: const BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: HubColors.border),
+                  ),
+                ),
+                child: Center(
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _visibleLimit += EventLogPanel.pageSize;
+                      });
+                    },
+                    child: Text(
+                      'Show more '
+                      '(${filteredCount - events.length} remaining)',
+                      style: GoogleFonts.ibmPlexSans(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

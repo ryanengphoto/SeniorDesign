@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_libserialport/flutter_libserialport.dart';
+import 'package:meta/meta.dart';
 
 import 'hub_device.dart';
 import 'protocol.dart';
@@ -24,16 +24,20 @@ import 'protocol.dart';
 class SerialDevice implements HubDevice {
   SerialDevice({
     required String portPath,
-    this.baudRate = 115200,
+    int baudRate = 115200,
     this.telemetryTimeout = const Duration(seconds: 3),
     this.initialOpenGrace = const Duration(seconds: 5),
-  }) : _portPath = normalizePortPath(portPath);
+  })  : _portPath = normalizePortPath(portPath),
+        _baudRate = baudRate > 0 ? baudRate : 115200;
 
   String _portPath;
-  final int baudRate;
+  int _baudRate;
 
   /// Current UART path (may change via [setSerialPort] without app restart).
   String get portPath => _portPath;
+
+  @override
+  int get baudRate => _baudRate;
 
   /// No valid frame within this window → treat link as dead (hub silent / power).
   final Duration telemetryTimeout;
@@ -73,10 +77,8 @@ class SerialDevice implements HubDevice {
   }
 
   SerialPort? _port;
-  // Retained so the native reader is not GC'd while the subscription is live.
-  // ignore: unused_field
-  SerialPortReader? _reader;
-  StreamSubscription<Uint8List>? _readSub;
+  Timer? _pollTimer;
+  final TelemetryLineBuffer _rxLines = TelemetryLineBuffer();
 
   RandomAccessFile? _ioWrite;
   Isolate? _ioIsolate;
@@ -85,7 +87,6 @@ class SerialDevice implements HubDevice {
 
   final _framesController = StreamController<TelemetryFrame>.broadcast();
   final _statusController = StreamController<void>.broadcast();
-  final StringBuffer _lineBuf = StringBuffer();
 
   TelemetryFrame? _latest;
   DateTime _startTime = DateTime.now();
@@ -102,7 +103,6 @@ class SerialDevice implements HubDevice {
   Timer? _reconnectTimer;
   Timer? _watchdog;
 
-  static const _backoffCap = Duration(seconds: 10);
 
   @override
   String get mode {
@@ -117,7 +117,7 @@ class SerialDevice implements HubDevice {
 
   @override
   String? get detail =>
-      portPath.isEmpty ? 'No port selected' : displayPortLabel(portPath);
+      portPath.isEmpty ? null : displayPortLabel(portPath);
 
   @override
   String? get errorMessage => _errorMessage;
@@ -129,6 +129,9 @@ class SerialDevice implements HubDevice {
 
   @override
   bool get supportsPortSelect => true;
+
+  @override
+  bool get supportsBaudSelect => true;
 
   @override
   bool get isPolled => false;
@@ -177,7 +180,35 @@ class SerialDevice implements HubDevice {
     _reconnectTimer = null;
     _reconnecting = true;
     _error = true;
-    _errorMessage = 'Switching to $normalized…';
+    final disp = displayPortLabel(normalized);
+    _errorMessage = 'Switching to $disp…';
+    _notifyStatus();
+    _closeTransportOnly();
+    _openTransport(resetBackoff: true);
+  }
+
+  @override
+  void setBaudRate(int baud) {
+    if (_disposed) {
+      return;
+    }
+    if (baud <= 0) {
+      return;
+    }
+    if (baud == _baudRate && _transportOpen && !_error) {
+      return;
+    }
+    _baudRate = baud;
+    if (!_hasPort) {
+      _notifyStatus();
+      return;
+    }
+    _latest = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnecting = true;
+    _error = true;
+    _errorMessage = 'Switching baud to $baud…';
     _notifyStatus();
     _closeTransportOnly();
     _openTransport(resetBackoff: true);
@@ -216,11 +247,12 @@ class SerialDevice implements HubDevice {
       _awaitPortSelection();
       return;
     }
+    final disp = displayPortLabel(portPath);
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnecting = true;
     _error = true;
-    _errorMessage = 'Manual reconnect…';
+    _errorMessage = 'Reconnecting to $disp…';
     _notifyStatus();
     _closeTransportOnly();
     _openTransport(resetBackoff: true);
@@ -231,7 +263,7 @@ class SerialDevice implements HubDevice {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _closeTransportOnly();
-    _lineBuf.clear();
+    _rxLines.clear();
     _usingIoFallback = false;
     _error = false;
     _reconnecting = false;
@@ -255,7 +287,7 @@ class SerialDevice implements HubDevice {
     }
 
     _closeTransportOnly();
-    _lineBuf.clear();
+    _rxLines.clear();
     _usingIoFallback = false;
     _error = false;
     _reconnecting = false;
@@ -268,13 +300,14 @@ class SerialDevice implements HubDevice {
     if (preferIo) {
       opened = _tryStartIoFallback() || _tryStartLibSerialPort();
     } else {
-      opened = _tryStartLibSerialPort() || _tryStartIoFallback();
+      opened = _tryStartLibSerialPort() ||
+          (!_isWindowsComPort(portPath) && _tryStartIoFallback());
     }
 
     if (!opened) {
+      final disp = displayPortLabel(portPath);
       _fail(
-        'Failed to open $portPath'
-        '${_errorMessage != null ? ": $_errorMessage" : ""}',
+        '$disp disconnected',
         scheduleReconnect: true,
       );
       return;
@@ -284,6 +317,9 @@ class SerialDevice implements HubDevice {
     _notifyStatus();
   }
 
+  static bool _isWindowsComPort(String path) =>
+      RegExp(r'^(\\\\\.\\)?COM\d+$', caseSensitive: false).hasMatch(path);
+
   static bool _looksLikePtyPath(String path) {
     if (path.startsWith('/dev/pts/')) {
       return true;
@@ -292,7 +328,7 @@ class SerialDevice implements HubDevice {
       return true;
     }
     // Windows COM ports are never PTY.
-    if (RegExp(r'^(\\\\\.\\)?COM\d+$', caseSensitive: false).hasMatch(path)) {
+    if (_isWindowsComPort(path)) {
       return false;
     }
     try {
@@ -323,29 +359,54 @@ class SerialDevice implements HubDevice {
       return false;
     }
 
+    SerialPortConfig? config;
     try {
-      final config = SerialPortConfig();
+      config = SerialPortConfig();
       config.baudRate = baudRate;
       config.bits = 8;
       config.stopBits = 1;
       config.parity = SerialPortParity.none;
       config.setFlowControl(SerialPortFlowControl.none);
       port.config = config;
-      config.dispose();
+      // Do not dispose config here: SerialPort retains config in its internal
+      // _config field and automatically calls _config.dispose() during
+      // port.dispose(). Calling dispose here causes a native CRT double-free
+      // assert (is_block_type_valid) upon port cleanup/reconnect.
     } on Object {
-      // Some devices reject termios; keep the open handle.
+      // Only dispose if assigning to port.config failed and port did not take ownership.
+      try {
+        config?.dispose();
+      } on Object {
+        // ignore
+      }
     }
 
     _port = port;
-    final reader = SerialPortReader(port);
-    _reader = reader;
-    _readSub = reader.stream.listen(
-      _onBytes,
-      onError: (Object e) => _fail('Serial read error: $e'),
-      onDone: () => _fail('Serial port closed'),
-      cancelOnError: false,
-    );
+    _startPortPolling(port);
     return true;
+  }
+
+  void _startPortPolling(SerialPort port) {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(milliseconds: 20), (_) {
+      if (_disposed || _error || !_transportOpen) {
+        return;
+      }
+      try {
+        final available = port.bytesAvailable;
+        if (available > 0) {
+          final data = port.read(available);
+          if (data.isNotEmpty) {
+            _onBytes(data);
+          }
+        } else if (available < 0) {
+          final err = SerialPort.lastError;
+          _fail('Serial port error: $err');
+        }
+      } on Object catch (e) {
+        _fail('Serial read error: $e');
+      }
+    });
   }
 
   bool _tryStartIoFallback() {
@@ -391,13 +452,8 @@ class SerialDevice implements HubDevice {
     _watchdog?.cancel();
     _watchdog = null;
 
-    try {
-      _readSub?.cancel();
-    } on Object {
-      // ignore
-    }
-    _readSub = null;
-    _reader = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
 
     final port = _port;
     _port = null;
@@ -466,13 +522,13 @@ class SerialDevice implements HubDevice {
       return (
         PortState.manualBlocked,
         ThreatCode.manualHostKill.value,
-        'Port $portId isolate not sent — link down',
+        'Isolate not sent, link down',
       );
     }
     return (
       PortState.manualBlocked,
       ThreatCode.manualHostKill.value,
-      'Port $portId isolate command sent',
+      'Isolate command sent',
     );
   }
 
@@ -482,13 +538,13 @@ class SerialDevice implements HubDevice {
       return (
         PortState.authorized,
         ThreatCode.noFault.value,
-        'Port $portId restore not sent — link down',
+        'Restore not sent, link down',
       );
     }
     return (
       PortState.authorized,
       ThreatCode.noFault.value,
-      'Port $portId restore command sent',
+      'Restore command sent',
     );
   }
 
@@ -504,6 +560,13 @@ class SerialDevice implements HubDevice {
         }
       }
     }
+    if (current != null && current.state == PortState.pendingHidConfirm) {
+      return (
+        current.state,
+        current.threatCode,
+        'Clear fault ignored, use Confirm keyboard',
+      );
+    }
     if (current != null && current.threatCode == ThreatCode.noFault.value) {
       return null;
     }
@@ -514,13 +577,42 @@ class SerialDevice implements HubDevice {
       return (
         current?.state ?? PortState.authorized,
         ThreatCode.noFault.value,
-        'Clear fault not sent for port $portId — link down',
+        'Clear fault not sent, link down',
       );
     }
     return (
       current?.state ?? PortState.authorized,
       ThreatCode.noFault.value,
-      'Clear fault command sent for port $portId ($previous)',
+      'Clear fault command sent ($previous)',
+    );
+  }
+
+  @override
+  (PortState, int, String)? confirmHid(int portId) {
+    PortStatus? current;
+    final ports = _latest?.ports;
+    if (ports != null) {
+      for (final p in ports) {
+        if (p.port == portId) {
+          current = p;
+          break;
+        }
+      }
+    }
+    if (current != null && current.state != PortState.pendingHidConfirm) {
+      return null;
+    }
+    if (!_writeCommand(CommandType.confirmHid, portId)) {
+      return (
+        current?.state ?? PortState.pendingHidConfirm,
+        ThreatCode.noFault.value,
+        'Confirm HID not sent, link down',
+      );
+    }
+    return (
+      PortState.authorized,
+      ThreatCode.noFault.value,
+      'Confirm HID command sent',
     );
   }
 
@@ -560,7 +652,7 @@ class SerialDevice implements HubDevice {
       }
     }
 
-    _fail('Cannot write command — port not open');
+    _fail('Cannot write command, port not open');
     return false;
   }
 
@@ -570,31 +662,37 @@ class SerialDevice implements HubDevice {
       return;
     }
     try {
-      _lineBuf.write(utf8.decode(data, allowMalformed: true));
-      var content = _lineBuf.toString();
-      var newline = content.indexOf('\n');
-      while (newline >= 0) {
-        final line = content.substring(0, newline);
-        content = content.substring(newline + 1);
-        final frame = TelemetryFrame.tryParseLine(line);
-        if (frame != null) {
-          _latest = frame;
-          _lastFrameAt = DateTime.now();
-          _error = false;
-          _reconnecting = false;
-          _errorMessage = null;
-          _reconnectAttempt = 0;
-          if (!_framesController.isClosed) {
-            _framesController.add(frame);
-          }
+      for (final frame in _rxLines.push(data)) {
+        _latest = frame;
+        _lastFrameAt = DateTime.now();
+        _error = false;
+        _reconnecting = false;
+        _errorMessage = null;
+        _reconnectAttempt = 0;
+        if (!_framesController.isClosed) {
+          _framesController.add(frame);
         }
-        newline = content.indexOf('\n');
       }
-      _lineBuf
-        ..clear()
-        ..write(content);
     } on Object catch (e) {
+      // TelemetryLineBuffer already swallows parse errors; this is belt-and-suspenders.
       _fail('Serial decode error: $e');
+    }
+  }
+
+  /// Test-only: feed RX bytes as if they arrived on the UART.
+  /// Bypasses link-up / error gates so garbage and good frames can be exercised
+  /// without opening a real COM port.
+  @visibleForTesting
+  void injectRxForTest(List<int> data) {
+    for (final frame in _rxLines.push(data)) {
+      _latest = frame;
+      _lastFrameAt = DateTime.now();
+      _error = false;
+      _reconnecting = false;
+      _errorMessage = null;
+      if (!_framesController.isClosed) {
+        _framesController.add(frame);
+      }
     }
   }
 
@@ -605,11 +703,11 @@ class SerialDevice implements HubDevice {
         return;
       }
       final now = DateTime.now();
+      final disp = displayPortLabel(portPath);
       if (_lastFrameAt != null) {
         if (now.difference(_lastFrameAt!) > telemetryTimeout) {
           _fail(
-            'No telemetry for ${telemetryTimeout.inSeconds}s '
-            '(peer silent or hub power loss)',
+            '$disp silent for ${telemetryTimeout.inSeconds}s (peer silent or hub power loss)',
           );
         }
         return;
@@ -617,7 +715,7 @@ class SerialDevice implements HubDevice {
       final opened = _openedAt;
       if (opened != null && now.difference(opened) > initialOpenGrace) {
         _fail(
-          'No telemetry within ${initialOpenGrace.inSeconds}s of open',
+          'No telemetry on $disp within ${initialOpenGrace.inSeconds}s of open',
         );
       }
     });
@@ -631,11 +729,15 @@ class SerialDevice implements HubDevice {
     final alreadyDown = _error && !_transportOpen;
     _error = true;
     _errorMessage = message;
+    // Drop last frame so the UI cannot show AUTHORIZED/PENDING while COM is dead.
+    _latest = null;
+    _lastFrameAt = null;
     if (!alreadyDown) {
       _closeTransportOnly();
     }
 
-    if (!scheduleReconnect) {
+    // Only allow one automatic reconnect attempt before stopping and waiting for user.
+    if (!scheduleReconnect || _reconnectAttempt >= 1) {
       _reconnectTimer?.cancel();
       _reconnectTimer = null;
       _reconnecting = false;
@@ -662,26 +764,19 @@ class SerialDevice implements HubDevice {
     }
     _reconnectTimer?.cancel();
     _reconnecting = true;
-
-    final exp = min(_reconnectAttempt, 4);
-    final delay = Duration(
-      milliseconds: min(
-        1000 * (1 << exp),
-        _backoffCap.inMilliseconds,
-      ),
-    );
     _reconnectAttempt += 1;
-    final root = (_errorMessage ?? 'Link down').split(' — retry').first;
-    _errorMessage = '$root — retry in ${delay.inSeconds}s…';
+
+    final disp = displayPortLabel(portPath);
+    _errorMessage = '$disp disconnected — retrying…';
     _notifyStatus();
 
-    _reconnectTimer = Timer(delay, () {
+    _reconnectTimer = Timer(const Duration(seconds: 1), () {
       _reconnectTimer = null;
       if (_disposed) {
         return;
       }
       _reconnecting = true;
-      _errorMessage = 'Reconnecting to $portPath…';
+      _errorMessage = 'Reconnecting to $disp…';
       _notifyStatus();
       _openTransport(resetBackoff: false);
     });

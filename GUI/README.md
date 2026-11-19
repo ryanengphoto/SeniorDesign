@@ -59,7 +59,7 @@ Both paths stay supported. **`SERIAL` + `mcu_sim` is still not PCB / STM32.**
 
 | Host | When to use | GUI | Peer |
 | --- | --- | --- | --- |
-| **Windows native** | CP2102s plug into Windows; no `usbipd` | `.\scripts\run_windows_serial.ps1` (pick COM in UI) | MCU UART stub or `mcu_sim` |
+| **Windows native** | CP2102s plug into Windows; no `usbipd` | `make windows-serial` (pick COM in UI) | MCU UART stub or `mcu_sim` |
 | **WSL / Linux** | PTY smoke test, or dongles attached into WSL | `make linux-serial SERIAL_PORT=…` | `make sim-mcu-i` or `mcu_sim.py --port /dev/ttyUSB0 -i` |
 
 ### Windows native (recommended for dual CP2102)
@@ -69,11 +69,15 @@ Needs Flutter for Windows + VS Desktop C++ workload, CP210x VCP drivers, `pip in
 ```powershell
 cd GUI
 .\scripts\list_com_ports.ps1   # optional
-.\scripts\run_windows_serial.ps1
-# Then pick COM in the app header dropdown (or: -Port COM3 to preselect)
+make windows-serial
+# Then pick COM in the app header dropdown
+# Optional preselect:  make windows-serial PORT=COM3
+# Or:  .\scripts\run_windows_serial.ps1 [-Port COM3]
 ```
 
-Mock on Windows (no serial): `.\scripts\run_windows_mock.ps1`
+Scripts restore your shell cwd on exit (no `cd ..` needed to re-run).
+
+Mock on Windows (no serial): `make windows-mock`
 
 ### WSL / Linux (PTY or usbipd ttyUSB)
 

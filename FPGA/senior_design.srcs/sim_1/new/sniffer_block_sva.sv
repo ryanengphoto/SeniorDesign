@@ -7,17 +7,18 @@
 
 `include "defines.svh"
 
-module sniffer_block_sva #(
-    parameter bit POLICY_STORAGE_ONLY = 1'b1
-) (
+module sniffer_block_sva (
     input logic       clk,
     input logic       rst,
     input logic       speed_valid,
     input logic       crc_fault,
+    input logic [2:0] policy_mode,
     input logic       intf_class_valid,
     input logic       intf_class_valid_d,
     input logic [7:0] intf_class,
     input logic       hid_threat_pulse,
+    input logic       hid_pending,
+    input logic       hid_confirm_hold, // comb OR into pending/kill (restore gap)
     input logic       threat_pulse,
     input logic [3:0] threat_code_in,
     input logic       attached,
@@ -28,9 +29,10 @@ module sniffer_block_sva #(
 
     logic sample_valid;
     wire  crc_threat = speed_valid & crc_fault;
-    wire  hid_exp = speed_valid && POLICY_STORAGE_ONLY &&
-                    intf_class_valid && !intf_class_valid_d &&
-                    (intf_class == 8'h03);
+    wire  hid_rise = speed_valid &&
+                     intf_class_valid && !intf_class_valid_d &&
+                     (intf_class == 8'h03);
+    wire  hid_exp = hid_rise && (policy_mode == `CTRL_POLICY_STORAGE_ONLY);
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -40,8 +42,8 @@ module sniffer_block_sva #(
                 if (hid_threat_pulse !== hid_exp)
                     $error("sniffer_block SVA: hid_threat_pulse decode mismatch");
 
-                if (!POLICY_STORAGE_ONLY && hid_threat_pulse)
-                    $error("sniffer_block SVA: HID pulse with POLICY_STORAGE_ONLY=0");
+                if ((policy_mode != `CTRL_POLICY_STORAGE_ONLY) && hid_threat_pulse)
+                    $error("sniffer_block SVA: HID 0x1 pulse outside storage-only policy");
 
                 if (!speed_valid && (hid_threat_pulse || threat_pulse))
                     $error("sniffer_block SVA: threat before speed lock");
@@ -60,10 +62,15 @@ module sniffer_block_sva #(
                     $error("sniffer_block SVA: ATTACHED bit mismatch");
                 if (port_status[`PORT_STATUS_ISOLATED_BIT] !== kill)
                     $error("sniffer_block SVA: ISOLATED bit mismatch");
+                if (port_status[`PORT_STATUS_HID_PENDING_BIT] !==
+                    (hid_pending | hid_confirm_hold))
+                    $error("sniffer_block SVA: HID_PENDING bit mismatch");
                 if (port_status[`PORT_STATUS_THREAT_PRESENT_BIT] !==
-                    (threat_code != `THREAT_NO_FAULT))
+                    ((threat_code != `THREAT_NO_FAULT) | hid_pending |
+                     hid_confirm_hold))
                     $error("sniffer_block SVA: THREAT_PRESENT bit mismatch");
-                if ((port_status & 8'h3E) != 8'h00)
+                // Reserved mid bits except HID pending (bit 4)
+                if ((port_status & 8'h2E) != 8'h00)
                     $error("sniffer_block SVA: reserved port_status bits nonzero");
             end
             sample_valid <= 1'b1;

@@ -59,12 +59,17 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define B1_Pin GPIO_PIN_13
 #define B1_GPIO_Port GPIOC
-#define USART_TX_Pin GPIO_PIN_2
+/* USART1 — same pins as Black Pill / carrier CP2102 path (not ST-LINK VCP). */
+#define USART_TX_Pin GPIO_PIN_9
 #define USART_TX_GPIO_Port GPIOA
-#define USART_RX_Pin GPIO_PIN_3
+#define USART_RX_Pin GPIO_PIN_10
 #define USART_RX_GPIO_Port GPIOA
-#define SPI_CS_Pin GPIO_PIN_4
-#define SPI_CS_GPIO_Port GPIOA
+/* SPI2 soft CS — frees PA5 for LD2 (see wiring.md Nucleo section). */
+#define SPI_CS_Pin GPIO_PIN_12
+#define SPI_CS_GPIO_Port GPIOB
+/* NUCLEO-F411RE green user LED (LD2 / D13). Active-high (unlike Black Pill PC13). */
+#define LD2_Pin GPIO_PIN_5
+#define LD2_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14

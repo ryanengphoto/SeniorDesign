@@ -25,6 +25,7 @@ set tops [list \
   tb_kill_e2e \
   tb_enum_e2e \
   tb_demo_threat \
+  tb_hid_confirm \
   tb_spi_enum_e2e \
   tb_main_selfstim \
   tb_spi_manual_kill \

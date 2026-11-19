@@ -23,10 +23,10 @@ class ThreatBadge extends StatelessWidget {
         border: Border.all(color: HubColors.danger.withValues(alpha: 0.4)),
       ),
       child: Text(
-        ThreatCode.nameFor(threatCode),
-        style: GoogleFonts.ibmPlexMono(
+        ThreatCode.summaryFor(threatCode),
+        style: GoogleFonts.ibmPlexSans(
           fontSize: 11,
-          fontWeight: FontWeight.w500,
+          fontWeight: FontWeight.w600,
           color: HubColors.danger,
         ),
       ),
@@ -37,7 +37,10 @@ class ThreatBadge extends StatelessWidget {
 Color stateForeground(PortState state) {
   return switch (state) {
     PortState.authorized => HubColors.ok,
-    PortState.quarantined || PortState.manualBlocked => HubColors.danger,
+    PortState.quarantined ||
+    PortState.manualBlocked ||
+    PortState.pendingHidConfirm =>
+      HubColors.danger,
     PortState.disconnected => HubColors.muted,
   };
 }

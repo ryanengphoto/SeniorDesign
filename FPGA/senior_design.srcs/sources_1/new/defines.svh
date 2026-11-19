@@ -66,13 +66,27 @@
 `define THREAT_MANUAL_HOST_KILL     4'h7
 
 // -----------------------------------------------------------------------------
+// Pn_CONTROL bits (Docs/fabric_slop.md §5)
+// -----------------------------------------------------------------------------
+`define CTRL_POLICY_STORAGE_ONLY  3'd0  // HID → sticky UNAUTHORIZED_HID (0x1)
+`define CTRL_POLICY_HID_CONFIRM   3'd1  // HID → pending until APPROVE_HID
+`define CTRL_POLICY_HID_ALLOW     3'd2  // HID → no auto hold (bench/cov)
+`define CTRL_MANUAL_KILL_BIT      7
+`define CTRL_CLEAR_FAULT_BIT      6
+`define CTRL_APPROVE_HID_BIT      5     // pulse: release HID-confirm hold
+// [2:0] = policy mode
+
+// -----------------------------------------------------------------------------
 // Midterm UART port-status byte (Fig. 19 example 0xC1)
 // Text: attached + isolated high, plus a threat-present flag.
 // Exact figure callouts are image-only; bits below reproduce 0xC1 when all set.
+// SPI Pn_STATUS pack also exposes HID pending on bit [4].
 // -----------------------------------------------------------------------------
-`define PORT_STATUS_ATTACHED_BIT      0
-`define PORT_STATUS_ISOLATED_BIT      6
+`define PORT_STATUS_ATTACHED_BIT       0
+`define PORT_STATUS_HID_PENDING_BIT    4
+`define PORT_STATUS_ISOLATED_BIT       6
 `define PORT_STATUS_THREAT_PRESENT_BIT 7
-`define PORT_STATUS_EXAMPLE_C1        8'hC1
+`define PORT_STATUS_EXAMPLE_C1         8'hC1
+`define SPI_STATUS_HID_PENDING_BIT     4
 
 `endif // DEFINES_SVH

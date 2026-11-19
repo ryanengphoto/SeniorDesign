@@ -199,5 +199,5 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /* USER CODE BEGIN 1 */
-
+/* USART1_IRQHandler lives in main.c (RXNE → ring buffer; no HAL RX state machine). */
 /* USER CODE END 1 */
