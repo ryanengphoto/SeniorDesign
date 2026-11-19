@@ -9,7 +9,7 @@ String eventsToCsv(List<SecurityEvent> events) {
       [
         e.id?.toString() ?? '',
         e.formattedAt,
-        (e.port + 1).toString(),
+        e.isSystem ? '0' : (e.port + 1).toString(),
         e.threatCode.toString(),
         _csv(e.threatName),
         _csv(e.state.wireName),
@@ -45,40 +45,48 @@ List<SecurityEvent> eventsFromCsv(String csv) {
 
   final out = <SecurityEvent>[];
   for (var i = start; i < lines.length; i++) {
-    final cols = _parseCsvLine(lines[i]);
-    if (cols.length < 6) {
+    try {
+      final cols = _parseCsvLine(lines[i]);
+      if (cols.length < 6) {
+        continue;
+      }
+      // id,at,port,threat_code,threat_name,state,message
+      final hasId = cols.length >= 7;
+      final idRaw = hasId ? cols[0] : '';
+      final atRaw = hasId ? cols[1] : cols[0];
+      final portRaw = hasId ? cols[2] : cols[1];
+      final codeRaw = hasId ? cols[3] : cols[2];
+      final name = hasId ? cols[4] : cols[3];
+      final stateRaw = hasId ? cols[5] : cols[4];
+      final message = hasId ? cols[6] : cols[5];
+
+      final portDisplay = int.tryParse(portRaw.trim()) ?? 1;
+      // CSV uses 1–4 for hub ports; 0 (or negative) means system/UART events.
+      final port = portDisplay <= 0
+          ? SecurityEvent.systemPort
+          : (portDisplay - 1).clamp(0, 3);
+      final threatCode = int.tryParse(codeRaw.trim()) ?? 0;
+      final id = int.tryParse(idRaw.trim());
+      final at = DateTime.tryParse(atRaw.trim().replaceFirst(' ', 'T')) ??
+          DateTime.now();
+
+      out.add(
+        SecurityEvent(
+          id: id,
+          at: at,
+          port: port,
+          threatCode: threatCode,
+          threatName: name.trim().isEmpty
+              ? ThreatCode.nameFor(threatCode)
+              : name.trim(),
+          state: PortState.fromWireName(stateRaw.trim().replaceAll(' ', '_')),
+          message: message,
+        ),
+      );
+    } on Object {
+      // Skip corrupt rows — never fail the whole import.
       continue;
     }
-    // id,at,port,threat_code,threat_name,state,message
-    final hasId = cols.length >= 7;
-    final idRaw = hasId ? cols[0] : '';
-    final atRaw = hasId ? cols[1] : cols[0];
-    final portRaw = hasId ? cols[2] : cols[1];
-    final codeRaw = hasId ? cols[3] : cols[2];
-    final name = hasId ? cols[4] : cols[3];
-    final stateRaw = hasId ? cols[5] : cols[4];
-    final message = hasId ? cols[6] : cols[5];
-
-    final portDisplay = int.tryParse(portRaw.trim()) ?? 1;
-    final port = (portDisplay - 1).clamp(0, 3);
-    final threatCode = int.tryParse(codeRaw.trim()) ?? 0;
-    final id = int.tryParse(idRaw.trim());
-    final at = DateTime.tryParse(atRaw.trim().replaceFirst(' ', 'T')) ??
-        DateTime.now();
-
-    out.add(
-      SecurityEvent(
-        id: id,
-        at: at,
-        port: port,
-        threatCode: threatCode,
-        threatName: name.trim().isEmpty
-            ? ThreatCode.nameFor(threatCode)
-            : name.trim(),
-        state: PortState.fromWireName(stateRaw.trim().replaceAll(' ', '_')),
-        message: message,
-      ),
-    );
   }
   return out;
 }

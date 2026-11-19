@@ -30,9 +30,14 @@ PYTHON ?= python3
 SOCAT_PID_FILE := /tmp/hub_socat.pid
 MCU_SIM_PID_FILE := /tmp/hub_mcu_sim.pid
 
+# Optional COM for windows-serial (empty = pick in UI). Do not reuse SERIAL_PORT
+# (defaults to /tmp/hub_host for the Linux/PTY path).
+PORT ?=
+
 .PHONY: help dev linux run-linux web windows install analyze test test-serial \
 	build build-web build-linux build-windows stop doctor \
-	linux-serial sim-pty sim-mcu sim-mcu-i ensure-pty stop-sim tier1-check
+	linux-serial windows-serial windows-mock \
+	sim-pty sim-mcu sim-mcu-i ensure-pty stop-sim tier1-check
 
 .DEFAULT_GOAL := help
 
@@ -53,10 +58,13 @@ help:
 	@echo "  make tier1-check    Automated PTY protocol check (socat + mcu_sim)"
 	@echo "  make stop-sim       Stop background socat / mcu_sim from make sim-pty"
 	@echo ""
-	@echo "  Tier-2 serial — Windows native path (no usbipd; run in PowerShell):"
+	@echo "  Tier-2 serial — Windows native path (no usbipd; PowerShell or Make):"
+	@echo "  make windows-serial            Flutter Windows serial (pick COM in UI)"
+	@echo "  make windows-serial PORT=COM4  Optional COM preselect"
+	@echo "  make windows-mock              Flutter Windows mock (no COM)"
 	@echo "  .\\scripts\\list_com_ports.ps1"
 	@echo "  python scripts\\mcu_sim.py --port COM3 -i"
-	@echo "  .\\scripts\\run_windows_serial.ps1 -Port COM4"
+	@echo "  .\\scripts\\run_windows_serial.ps1 [-Port COM4]"
 	@echo "  .\\scripts\\run_windows_mock.ps1"
 	@echo ""
 	@echo "  Release packages:"
@@ -91,6 +99,13 @@ analyze: install
 # Bundle lib path for flutter_libserialport in `flutter test` (PTY uses dart:io fallback too).
 SERIAL_LIB_DIR := $(APP_DIR)/build/linux/x64/debug/bundle/lib
 
+ifeq ($(OS),Windows_NT)
+test: install
+	cd $(APP_DIR) && $(FLUTTER) test
+
+test-serial: install
+	cd $(APP_DIR) && $(FLUTTER) test test/serial_tier1_test.dart
+else
 test: install
 	@if [ -f "$(SERIAL_LIB_DIR)/libserialport.so" ]; then \
 		cd $(APP_DIR) && LD_LIBRARY_PATH="$(CURDIR)/$(SERIAL_LIB_DIR):$${LD_LIBRARY_PATH:-}" $(FLUTTER) test; \
@@ -106,6 +121,7 @@ test-serial: install
 	fi
 	cd $(APP_DIR) && LD_LIBRARY_PATH="$(CURDIR)/$(SERIAL_LIB_DIR):$${LD_LIBRARY_PATH:-}" \
 		$(FLUTTER) test test/serial_tier1_test.dart
+endif
 
 # One-command mock preview: Flutter web-server + open browser when possible.
 dev web: install
@@ -228,6 +244,31 @@ else
 	  "  .\\scripts\\build_windows.ps1" \
 	  "" \
 	  "Output: app/build/windows/x64/runner/Release/  (zip the whole folder)" \
+	  >&2; \
+	exit 1
+endif
+
+# Run (not build) on a Windows host. Scripts restore the caller's cwd on exit.
+windows-serial:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_windows_serial.ps1 $(if $(PORT),-Port $(PORT)) -Baud $(SERIAL_BAUD)
+else
+	@uname_s=$$(uname -s 2>/dev/null || echo unknown); \
+	printf '%s\n' \
+	  "ERROR: make windows-serial requires a Windows host (not $$uname_s / WSL)." \
+	  "  make -C GUI windows-serial" \
+	  "  make -C GUI windows-serial PORT=COM4" \
+	  >&2; \
+	exit 1
+endif
+
+windows-mock:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_windows_mock.ps1
+else
+	@uname_s=$$(uname -s 2>/dev/null || echo unknown); \
+	printf '%s\n' \
+	  "ERROR: make windows-mock requires a Windows host (not $$uname_s / WSL)." \
 	  >&2; \
 	exit 1
 endif

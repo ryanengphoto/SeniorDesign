@@ -544,19 +544,17 @@ class _DatabasePageState extends State<DatabasePage> {
                                               Text(event.formattedAt),
                                             ),
                                             DataCell(
-                                              Text('Port ${event.port + 1}'),
+                                              Text(event.portLabel),
+                                            ),
+                                            DataCell(
+                                              Text(event.threatHeadline ?? '—'),
                                             ),
                                             DataCell(
                                               Text(
                                                 event.threatCode > 0
-                                                    ? ThreatCode.summaryFor(
-                                                        event.threatCode,
-                                                      )
-                                                    : event.threatName,
+                                                    ? '0x${event.threatCode}'
+                                                    : '—',
                                               ),
-                                            ),
-                                            DataCell(
-                                              Text('0x${event.threatCode}'),
                                             ),
                                             DataCell(Text(event.state.label)),
                                             DataCell(

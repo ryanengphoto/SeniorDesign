@@ -276,7 +276,7 @@ void main() {
     hub.dispose();
   });
 
-  testWidgets('connection banner shows No port selected when no port is picked',
+  testWidgets('connection banner shows Disconnected when no port is picked',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -289,13 +289,18 @@ void main() {
             supportsPortSelect: true,
             availablePorts: const ['COM3', 'COM4'],
             onPortSelected: (_) {},
+            supportsBaudSelect: true,
+            baudRate: 115200,
+            onBaudSelected: (_) {},
           ),
         ),
       ),
     );
 
-    expect(find.text('No port selected'), findsOneWidget);
+    expect(find.text('Disconnected'), findsOneWidget);
     expect(find.text('Select COM'), findsOneWidget);
+    expect(find.text('Baud rate'), findsOneWidget);
+    expect(find.text('No port selected'), findsNothing);
     expect(find.text('Waiting…'), findsNothing);
   });
 
@@ -315,6 +320,9 @@ void main() {
             supportsPortSelect: true,
             availablePorts: const ['COM3', 'COM7'],
             onPortSelected: (_) {},
+            supportsBaudSelect: true,
+            baudRate: 115200,
+            onBaudSelected: (_) {},
           ),
         ),
       ),
@@ -322,7 +330,92 @@ void main() {
 
     expect(find.text('COM7 disconnected'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
-    expect(find.text('SERIAL'), findsOneWidget);
+    expect(find.text('115200'), findsOneWidget);
+    expect(find.text('SERIAL'), findsNothing);
+  });
+
+  testWidgets('connection banner shows Connected without SERIAL badge',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildHubTheme(),
+        home: Scaffold(
+          body: ConnectionBanner(
+            connected: true,
+            mode: 'serial',
+            detail: 'COM3',
+            supportsPortSelect: true,
+            availablePorts: const ['COM3', 'COM4'],
+            onPortSelected: (_) {},
+            supportsBaudSelect: true,
+            baudRate: 115200,
+            onBaudSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Connected'), findsOneWidget);
+    expect(find.text('COM3'), findsWidgets);
+    expect(find.text('Baud rate'), findsOneWidget);
+    expect(find.text('115200'), findsOneWidget);
+    expect(find.text('SERIAL'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+  });
+
+  testWidgets('connection banner shows Reconnecting with Retry', (tester) async {
+    var retried = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildHubTheme(),
+        home: Scaffold(
+          body: ConnectionBanner(
+            connected: false,
+            mode: 'serial_reconnecting',
+            detail: 'COM4',
+            supportsReconnect: true,
+            onReconnect: () {
+              retried = true;
+            },
+            supportsPortSelect: true,
+            availablePorts: const ['COM4'],
+            onPortSelected: (_) {},
+            supportsBaudSelect: true,
+            baudRate: 57600,
+            onBaudSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Reconnecting…'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('57600'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(retried, isTrue);
+  });
+
+  testWidgets('connection banner mock mode has no COM/baud pickers',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildHubTheme(),
+        home: Scaffold(
+          body: ConnectionBanner(
+            connected: true,
+            mode: 'mock',
+            detail: null,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Connected'), findsOneWidget);
+    expect(find.text('Select COM'), findsNothing);
+    expect(find.text('Baud rate'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
   });
 
   testWidgets(

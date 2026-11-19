@@ -1,49 +1,46 @@
 # GUI prototype state
 
-**Last updated:** 2026-11-16  
-**Status:** Software prototype — Flutter operator console with mock (default), Tier-1 PTY serial, and Tier-2 dual-CP2102 serial via WSL **or** Windows COM (`mcu_sim`). Serial against `mcu_sim` is **not** real PCB / MCU / FPGA hardware. Firmware SPI bring-up can surface live port0 HID pending/confirm when Cmod is programmed.
+**Last updated:** 2026-11-18  
+**Status:** Flutter operator console — mock for offline demo (`make dev`), serial for hardware (`make windows-serial` / COM). Bench stack (GUI ↔ Black Pill UART ↔ FPGA SPI bring-up) has been verified end-to-end. `mcu_sim` remains a **dummy** UART peer when used.
 
-**Run:** `make dev` from `GUI/` → http://127.0.0.1:7357 (mode badge shows `MOCK`).
+**Run:** `make dev` from `GUI/` → http://127.0.0.1:7357 (mode badge shows `MOCK`). Hardware: `make windows-serial` (or `.\scripts\run_windows_serial.ps1`).
 
 ---
 
-## Next steps (work in this order)
+## Next steps (triaged 2026-11-18)
 
-### Priority — hardware integration
+### Priority
 
-- [x] Serial / USB-CDC device layer in Dart (newline-delimited JSON per `Docs/firmwmare_slop.md`) — Tier 1 via PTY + `mcu_sim`
-- [x] **Tier 2:** Dual CP2102 cross-wire + same `mcu_sim` (headless on WSL 2026-10-15)
-- [x] **Windows serial host path:** `scripts/run_windows_serial.ps1` + COM ports (keeps WSL `linux-serial` / usbipd path)
-- [x] MCU firmware UART stub speaking the same JSON contract (`Firmware/` PlatformIO / Black Pill; mock local state only — see `Firmware/README.md`)
-- [x] Stub GUI demo parity: port 1 → `PENDING_HID_CONFIRM`@5s + Confirm keyboard (`confirm_hid`); verified Windows serial on COM3 historically (`uart_smoke.py`)
-- [x] HID confirm-before-allow UX: `PENDING_HID_CONFIRM` + `confirm_hid` modal popup dialog (clean 3-button port card without taking up card space) across protocol / mock / mcu_sim / firmware
-- [x] MCU SPI bring-up bridge (`Firmware/` `fpga_bridge` + `FPGA_SPI_BRINGUP`) — port0 status/VID/PID/class over SPI; clear/manual via `P0_CONTROL` (bench verify with programmed Cmod)
-- [x] Dropped power telemetry: INA219 / vbus_mv / current_ma removed from JSON and protocol models
-- [ ] Forward host commands for all ports + full policy; drop mock dual-mode once default
-- [ ] Verify end-to-end with hardware on the bench
-- [ ] Package native Linux (`make build-linux`) and Windows (`make build-windows` on a Windows host / `scripts/build_windows.ps1`) for demo day
+- [x] Serial / USB-CDC device layer (Tier 1 PTY + `mcu_sim`)
+- [x] Tier 2 dual CP2102 + Windows COM host path
+- [x] MCU UART JSON + SPI bring-up; HID confirm UX; commands for ports 0–3
+- [x] End-to-end verified on the bench (GUI ↔ MCU ↔ FPGA)
+- [ ] **Package** native Windows (and optionally Linux) release builds for demo day — last ship step
+- [x] **Expand unit tests** — HubService confirm/isolate stale-frame races, dual logging, system-event purge, burst copy; banner Connected/Reconnecting/mock; `make test` works on Windows
+- [x] **JSON / UART resilience** — lenient telemetry parse + `TelemetryLineBuffer`; garbage lines/bytes skipped; HubService frame path never tears down UI; CSV import skips corrupt rows; fuzz coverage in `protocol_resilience_test.dart`
 
-### Recommended — quality and demo
+### Outstanding (low urgency)
 
-- [x] Serial reconnect — auto backoff + Retry; unplug/power-loss must not crash commands
-- [x] Runtime COM / serial port picker in console header (no app restart)
-- [ ] Expand unit tests beyond protocol + smoke widget test
-- [x] Human-readable USB device identification and names in port cards (VID/PID lookup table in `usb_names.dart`)
-- [ ] Expand mock / mcu_sim to surface threat codes 1, 3–6 (only 2 and 7 demoed today)
-- [x] Persistent event log (Drift / SQLite) — last 200, wall-clock `YYYY-MM-DD HH:MM:SS`; clear all / delete one / filter by port
-- [x] Database page sort (newest/oldest/port/threat) + show 50 at a time with Show more
-- [ ] Install system deps for `make linux` (`clang ninja-build pkg-config libgtk-3-dev`)
+- [ ] Expand mock / `mcu_sim` default scripts for threat codes 1, 3–6 (REPL can already trigger some)
 
-### Deferred (out of current v1 scope)
+### Stretch (optional)
 
-- [ ] Policy editor (VID/class whitelist UI)
-- [ ] Scenario replay UI / recorded demo files
-- [ ] Configurable HID thresholds from GUI
-- [ ] Authentication / multi-user access
-- [ ] Global system status UI (FPGA reset, external 5 V, hub power mode)
-- [ ] Settings page
-- [ ] Link from `Website/` to operator console (if desired publicly)
-- [ ] Revive legacy FastAPI `GUI/backend/` (not planned — Dart SoT)
+- [ ] **Configurable HID thresholds from GUI** — leave alone for now; FPGA owns keystroke/cooldown bounds. Only revisit if fabric exposes runtime registers the MCU can write.
+
+### Explicitly not doing
+
+- [x] ~~VID/class allowlist / policy editor~~ — **rejected**; descriptors are spoofable, so auto-trust-by-ID is a risk. Confirm-before-allow (and fabric behavior) stays the model
+- [x] ~~Authentication / multi-user~~ — not useful for this console
+- [x] ~~Install `make linux` system deps~~ — deferred / not a concern
+- [x] ~~Scenario replay UI~~ — unnecessary for this project
+- [x] ~~Global system status UI~~ (FPGA reset / rail / hub power) — unnecessary for v1 console
+- [x] ~~Settings page~~ — no clear v1 contents; header COM/baud covers runtime needs
+- [x] ~~Link Website → operator console~~ — different audiences; console is local, not a public app
+- [x] ~~Revive FastAPI `GUI/backend/`~~ — **never**; Flutter/`protocol.dart` is SoT
+
+### Notes on checked items
+
+- **Host commands for all ports:** GUI `HostCommand` + firmware accept `port` 0–3 for isolate/restore/clear/confirm. Mock remains available for offline UI work; serial is the hardware path — not a blocker.
 
 ---
 
@@ -56,12 +53,12 @@
 | Serial UART backend | **Built** — `SerialDevice` + `flutter_libserialport` (desktop only) |
 | Dummy MCU peer (`mcu_sim.py`) | **Built** — Tier-1 / Tier-2 test peer; **not** hardware |
 | JSON host↔MCU protocol (Dart) | **Built** — `app/lib/protocol.dart` (+ unit tests) |
-| Real MCU / carrier integration | **Stub** — `Firmware/` UART JSON over USART1→CP2102; no SPI/sensors yet |
-| Native Linux desktop launch | **Scaffolded** — needs system GTK/clang toolchain |
-| Windows `.exe` / serial host | **Scaffolded** — `run_windows_serial.ps1` (COM) + `build_windows.ps1` (build on Windows only) |
-| Policy editor, scenario replay | **Not built** — out of v1 scope |
-| Event log persistence | **Built** — Drift SQLite, last 200 events, reload on start |
-| Automated tests | Protocol + persist + widget + serial Tier-1 + `make tier1-check` |
+| Real MCU / carrier integration | **Bench-verified** — UART + SPI bring-up |
+| Native Linux desktop launch | **Scaffolded** — optional; not prioritized |
+| Windows `.exe` / serial host | **Run path built** — `windows-serial`; **release package** still outstanding |
+| Policy / allowlist / auth / FastAPI | **Won't do** — see Next steps |
+| Event log persistence | **Built** — Drift SQLite, last 200 **security** events; UART/COM/baud host-link status is not logged (header banner only) |
+| Automated tests | Protocol + resilience fuzz + persist + HubService races + banner widgets + serial Tier-1 + `make tier1-check` |
 
 ---
 
@@ -88,7 +85,7 @@ HubService  ←── HubDevice interface
     └── SerialDevice   (HUB_MODE=serial, desktop only)
               │
               ▼
-         UART / PTY  ←── mcu_sim.py (dummy) or future MCU
+         UART / PTY  ←── Black Pill (bench) or mcu_sim.py (dummy)
 ```
 
 ---

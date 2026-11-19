@@ -64,27 +64,12 @@ class _DashboardPageState extends State<DashboardPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Downstream ports',
-                            style: GoogleFonts.ibmPlexSans(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (_telemetrySubtitle(hub.mode) case final subtitle?) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              subtitle,
-                              style: GoogleFonts.ibmPlexSans(
-                                fontSize: 13,
-                                color: HubColors.muted,
-                              ),
-                            ),
-                          ],
-                        ],
+                      Text(
+                        'Downstream ports',
+                        style: GoogleFonts.ibmPlexSans(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       TextButton.icon(
                         onPressed: () => setState(() => _showLog = !_showLog),
@@ -167,16 +152,5 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
       ),
     );
-  }
-}
-
-String? _telemetrySubtitle(String mode) {
-  switch (mode.toLowerCase()) {
-    case 'serial_error':
-      return 'Serial link down — auto-retrying; use Retry or check cable/power.';
-    case 'serial_reconnecting':
-      return 'Reconnecting — waiting for peer / hub power.';
-    default:
-      return null;
   }
 }

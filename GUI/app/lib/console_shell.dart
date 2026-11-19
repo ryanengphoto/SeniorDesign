@@ -168,6 +168,16 @@ class _ConsoleShellState extends State<ConsoleShell> {
                 : null,
             onRefreshPorts:
                 widget.hub.supportsPortSelect ? _refreshSerialPorts : null,
+            supportsBaudSelect: widget.hub.supportsBaudSelect,
+            baudRate: widget.hub.baudRate,
+            onBaudSelected: widget.hub.supportsBaudSelect
+                ? (baud) {
+                    widget.hub.setBaudRate(baud);
+                    setState(() {
+                      _telemetry = widget.hub.latestTelemetry;
+                    });
+                  }
+                : null,
           ),
           Expanded(
             child: IndexedStack(
@@ -207,6 +217,9 @@ class _ConsoleHeader extends StatelessWidget {
     this.availablePorts = const [],
     this.onPortSelected,
     this.onRefreshPorts,
+    this.supportsBaudSelect = false,
+    this.baudRate = SerialBaud.defaultRate,
+    this.onBaudSelected,
   });
 
   final ConsoleSection section;
@@ -221,6 +234,9 @@ class _ConsoleHeader extends StatelessWidget {
   final List<String> availablePorts;
   final ValueChanged<String>? onPortSelected;
   final VoidCallback? onRefreshPorts;
+  final bool supportsBaudSelect;
+  final int baudRate;
+  final ValueChanged<int>? onBaudSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -310,6 +326,9 @@ class _ConsoleHeader extends StatelessWidget {
               availablePorts: availablePorts,
               onPortSelected: onPortSelected,
               onRefreshPorts: onRefreshPorts,
+              supportsBaudSelect: supportsBaudSelect,
+              baudRate: baudRate,
+              onBaudSelected: onBaudSelected,
             ),
           ],
         ),

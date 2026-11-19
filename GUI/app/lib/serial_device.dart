@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter_libserialport/flutter_libserialport.dart';
+import 'package:meta/meta.dart';
 
 import 'hub_device.dart';
 import 'protocol.dart';
@@ -23,16 +24,20 @@ import 'protocol.dart';
 class SerialDevice implements HubDevice {
   SerialDevice({
     required String portPath,
-    this.baudRate = 115200,
+    int baudRate = 115200,
     this.telemetryTimeout = const Duration(seconds: 3),
     this.initialOpenGrace = const Duration(seconds: 5),
-  }) : _portPath = normalizePortPath(portPath);
+  })  : _portPath = normalizePortPath(portPath),
+        _baudRate = baudRate > 0 ? baudRate : 115200;
 
   String _portPath;
-  final int baudRate;
+  int _baudRate;
 
   /// Current UART path (may change via [setSerialPort] without app restart).
   String get portPath => _portPath;
+
+  @override
+  int get baudRate => _baudRate;
 
   /// No valid frame within this window → treat link as dead (hub silent / power).
   final Duration telemetryTimeout;
@@ -73,6 +78,7 @@ class SerialDevice implements HubDevice {
 
   SerialPort? _port;
   Timer? _pollTimer;
+  final TelemetryLineBuffer _rxLines = TelemetryLineBuffer();
 
   RandomAccessFile? _ioWrite;
   Isolate? _ioIsolate;
@@ -81,7 +87,6 @@ class SerialDevice implements HubDevice {
 
   final _framesController = StreamController<TelemetryFrame>.broadcast();
   final _statusController = StreamController<void>.broadcast();
-  final StringBuffer _lineBuf = StringBuffer();
 
   TelemetryFrame? _latest;
   DateTime _startTime = DateTime.now();
@@ -112,7 +117,7 @@ class SerialDevice implements HubDevice {
 
   @override
   String? get detail =>
-      portPath.isEmpty ? 'No port selected' : displayPortLabel(portPath);
+      portPath.isEmpty ? null : displayPortLabel(portPath);
 
   @override
   String? get errorMessage => _errorMessage;
@@ -124,6 +129,9 @@ class SerialDevice implements HubDevice {
 
   @override
   bool get supportsPortSelect => true;
+
+  @override
+  bool get supportsBaudSelect => true;
 
   @override
   bool get isPolled => false;
@@ -180,6 +188,33 @@ class SerialDevice implements HubDevice {
   }
 
   @override
+  void setBaudRate(int baud) {
+    if (_disposed) {
+      return;
+    }
+    if (baud <= 0) {
+      return;
+    }
+    if (baud == _baudRate && _transportOpen && !_error) {
+      return;
+    }
+    _baudRate = baud;
+    if (!_hasPort) {
+      _notifyStatus();
+      return;
+    }
+    _latest = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnecting = true;
+    _error = true;
+    _errorMessage = 'Switching baud to $baud…';
+    _notifyStatus();
+    _closeTransportOnly();
+    _openTransport(resetBackoff: true);
+  }
+
+  @override
   Stream<TelemetryFrame> get frames => _framesController.stream;
 
   @override
@@ -228,7 +263,7 @@ class SerialDevice implements HubDevice {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _closeTransportOnly();
-    _lineBuf.clear();
+    _rxLines.clear();
     _usingIoFallback = false;
     _error = false;
     _reconnecting = false;
@@ -252,7 +287,7 @@ class SerialDevice implements HubDevice {
     }
 
     _closeTransportOnly();
-    _lineBuf.clear();
+    _rxLines.clear();
     _usingIoFallback = false;
     _error = false;
     _reconnecting = false;
@@ -487,13 +522,13 @@ class SerialDevice implements HubDevice {
       return (
         PortState.manualBlocked,
         ThreatCode.manualHostKill.value,
-        'Port $portId isolate not sent — link down',
+        'Isolate not sent, link down',
       );
     }
     return (
       PortState.manualBlocked,
       ThreatCode.manualHostKill.value,
-      'Port $portId isolate command sent',
+      'Isolate command sent',
     );
   }
 
@@ -503,13 +538,13 @@ class SerialDevice implements HubDevice {
       return (
         PortState.authorized,
         ThreatCode.noFault.value,
-        'Port $portId restore not sent — link down',
+        'Restore not sent, link down',
       );
     }
     return (
       PortState.authorized,
       ThreatCode.noFault.value,
-      'Port $portId restore command sent',
+      'Restore command sent',
     );
   }
 
@@ -529,7 +564,7 @@ class SerialDevice implements HubDevice {
       return (
         current.state,
         current.threatCode,
-        'Clear fault ignored on port $portId — use Confirm keyboard',
+        'Clear fault ignored, use Confirm keyboard',
       );
     }
     if (current != null && current.threatCode == ThreatCode.noFault.value) {
@@ -542,13 +577,13 @@ class SerialDevice implements HubDevice {
       return (
         current?.state ?? PortState.authorized,
         ThreatCode.noFault.value,
-        'Clear fault not sent for port $portId — link down',
+        'Clear fault not sent, link down',
       );
     }
     return (
       current?.state ?? PortState.authorized,
       ThreatCode.noFault.value,
-      'Clear fault command sent for port $portId ($previous)',
+      'Clear fault command sent ($previous)',
     );
   }
 
@@ -571,13 +606,13 @@ class SerialDevice implements HubDevice {
       return (
         current?.state ?? PortState.pendingHidConfirm,
         ThreatCode.noFault.value,
-        'Confirm HID not sent for port $portId — link down',
+        'Confirm HID not sent, link down',
       );
     }
     return (
       PortState.authorized,
       ThreatCode.noFault.value,
-      'Confirm HID command sent for port $portId',
+      'Confirm HID command sent',
     );
   }
 
@@ -617,7 +652,7 @@ class SerialDevice implements HubDevice {
       }
     }
 
-    _fail('Cannot write command — port not open');
+    _fail('Cannot write command, port not open');
     return false;
   }
 
@@ -627,31 +662,37 @@ class SerialDevice implements HubDevice {
       return;
     }
     try {
-      _lineBuf.write(utf8.decode(data, allowMalformed: true));
-      var content = _lineBuf.toString();
-      var newline = content.indexOf('\n');
-      while (newline >= 0) {
-        final line = content.substring(0, newline);
-        content = content.substring(newline + 1);
-        final frame = TelemetryFrame.tryParseLine(line);
-        if (frame != null) {
-          _latest = frame;
-          _lastFrameAt = DateTime.now();
-          _error = false;
-          _reconnecting = false;
-          _errorMessage = null;
-          _reconnectAttempt = 0;
-          if (!_framesController.isClosed) {
-            _framesController.add(frame);
-          }
+      for (final frame in _rxLines.push(data)) {
+        _latest = frame;
+        _lastFrameAt = DateTime.now();
+        _error = false;
+        _reconnecting = false;
+        _errorMessage = null;
+        _reconnectAttempt = 0;
+        if (!_framesController.isClosed) {
+          _framesController.add(frame);
         }
-        newline = content.indexOf('\n');
       }
-      _lineBuf
-        ..clear()
-        ..write(content);
     } on Object catch (e) {
+      // TelemetryLineBuffer already swallows parse errors; this is belt-and-suspenders.
       _fail('Serial decode error: $e');
+    }
+  }
+
+  /// Test-only: feed RX bytes as if they arrived on the UART.
+  /// Bypasses link-up / error gates so garbage and good frames can be exercised
+  /// without opening a real COM port.
+  @visibleForTesting
+  void injectRxForTest(List<int> data) {
+    for (final frame in _rxLines.push(data)) {
+      _latest = frame;
+      _lastFrameAt = DateTime.now();
+      _error = false;
+      _reconnecting = false;
+      _errorMessage = null;
+      if (!_framesController.isClosed) {
+        _framesController.add(frame);
+      }
     }
   }
 

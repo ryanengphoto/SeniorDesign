@@ -4,6 +4,41 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
+
+/// Lenient JSON helpers — UART peers may emit ints as doubles/strings.
+int? _jsonInt(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is String) {
+    return int.tryParse(value.trim());
+  }
+  return null;
+}
+
+String _jsonString(Object? value, [String fallback = '']) {
+  if (value == null) {
+    return fallback;
+  }
+  if (value is String) {
+    return value;
+  }
+  return value.toString();
+}
+
+Map<String, dynamic>? _jsonMap(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  return null;
+}
 
 enum PortState {
   disconnected,
@@ -99,6 +134,19 @@ enum ThreatCode {
   static String detailFor(int value) => fromValue(value).detail;
 }
 
+/// Common host UART baud rates for the console picker.
+abstract final class SerialBaud {
+  static const int defaultRate = 115200;
+  static const List<int> choices = [
+    9600,
+    19200,
+    38400,
+    57600,
+    115200,
+    230400,
+  ];
+}
+
 /// USB class code labels for operator display (bDeviceClass / bInterfaceClass).
 abstract final class UsbClass {
   static int? _parse(String hex) {
@@ -177,16 +225,29 @@ class HostCommand {
   String toWireLine() => '${jsonEncode(toJson())}\n';
 
   static HostCommand fromJson(Map<String, dynamic> json) {
-    final type = json['type'];
-    if (type != null && type != 'command') {
-      throw FormatException('expected type=command, got $type');
+    final parsed = tryParse(json);
+    if (parsed == null) {
+      throw FormatException('invalid host command: $json');
     }
-    final cmdName = json['cmd'] as String;
-    final cmd = CommandType.fromWireName(cmdName);
-    if (cmd == null) {
-      throw FormatException('unknown cmd: $cmdName');
+    return parsed;
+  }
+
+  /// Null on bad shape — never throws.
+  static HostCommand? tryParse(Map<String, dynamic> json) {
+    try {
+      final type = json['type'];
+      if (type != null && type != 'command') {
+        return null;
+      }
+      final cmd = CommandType.fromWireName(_jsonString(json['cmd']));
+      final port = _jsonInt(json['port']);
+      if (cmd == null || port == null) {
+        return null;
+      }
+      return HostCommand(cmd: cmd, port: port);
+    } on Object {
+      return null;
     }
-    return HostCommand(cmd: cmd, port: json['port'] as int);
   }
 }
 
@@ -239,14 +300,19 @@ class PortStatus {
       };
 
   factory PortStatus.fromJson(Map<String, dynamic> json) {
+    final port = _jsonInt(json['port']);
+    final threat = _jsonInt(json['threat_code']) ?? 0;
+    if (port == null) {
+      throw FormatException('port status missing port');
+    }
     return PortStatus(
-      port: json['port'] as int,
-      state: PortState.fromWireName(json['state'] as String),
-      threatCode: json['threat_code'] as int,
-      vid: json['vid'] as String,
-      pid: json['pid'] as String,
-      devClass: json['dev_class'] as String,
-      intClass: json['int_class'] as String,
+      port: port,
+      state: PortState.fromWireName(_jsonString(json['state'], 'DISCONNECTED')),
+      threatCode: threat,
+      vid: _jsonString(json['vid'], '0x0000'),
+      pid: _jsonString(json['pid'], '0x0000'),
+      devClass: _jsonString(json['dev_class'], '0x00'),
+      intClass: _jsonString(json['int_class'], '0x00'),
     );
   }
 }
@@ -266,16 +332,24 @@ class TelemetryFrame {
       };
 
   factory TelemetryFrame.fromJson(Map<String, dynamic> json) {
-    final rawPorts = json['ports'] as List<dynamic>;
-    return TelemetryFrame(
-      timestampMs: json['timestamp_ms'] as int,
-      ports: rawPorts
-          .map((e) => PortStatus.fromJson(e as Map<String, dynamic>))
-          .toList(growable: false),
-    );
+    final timestamp = _jsonInt(json['timestamp_ms']);
+    final rawPorts = json['ports'];
+    if (timestamp == null || rawPorts is! List) {
+      throw FormatException('telemetry missing timestamp_ms/ports');
+    }
+    final ports = <PortStatus>[];
+    for (final e in rawPorts) {
+      final map = _jsonMap(e);
+      if (map == null) {
+        throw FormatException('port entry is not an object');
+      }
+      ports.add(PortStatus.fromJson(map));
+    }
+    return TelemetryFrame(timestampMs: timestamp, ports: ports);
   }
 
-  /// Parse one newline-delimited telemetry line. Returns null on bad JSON.
+  /// Parse one newline-delimited telemetry line. Returns null on bad JSON —
+  /// never throws (safe for UART byte pumps).
   static TelemetryFrame? tryParseLine(String line) {
     final trimmed = line.trim();
     if (trimmed.isEmpty) {
@@ -283,14 +357,54 @@ class TelemetryFrame {
     }
     try {
       final decoded = jsonDecode(trimmed);
-      if (decoded is! Map<String, dynamic>) {
+      final map = _jsonMap(decoded);
+      if (map == null) {
         return null;
       }
-      return TelemetryFrame.fromJson(decoded);
+      return TelemetryFrame.fromJson(map);
     } on Object {
       return null;
     }
   }
+}
+
+/// Accumulates UART bytes into newline-delimited [TelemetryFrame]s.
+///
+/// Bad lines and malformed UTF-8 are skipped; [push] never throws.
+class TelemetryLineBuffer {
+  final StringBuffer _buf = StringBuffer();
+
+  /// Feed raw UART bytes; returns newly completed frames (may be empty).
+  List<TelemetryFrame> push(List<int> data) {
+    try {
+      _buf.write(utf8.decode(data, allowMalformed: true));
+      var content = _buf.toString();
+      final out = <TelemetryFrame>[];
+      var newline = content.indexOf('\n');
+      while (newline >= 0) {
+        final line = content.substring(0, newline);
+        content = content.substring(newline + 1);
+        final frame = TelemetryFrame.tryParseLine(line);
+        if (frame != null) {
+          out.add(frame);
+        }
+        newline = content.indexOf('\n');
+      }
+      _buf
+        ..clear()
+        ..write(content);
+      return out;
+    } on Object {
+      _buf.clear();
+      return const [];
+    }
+  }
+
+  /// Feed a UTF-8 string (tests / simulators).
+  List<TelemetryFrame> pushString(String chunk) =>
+      push(Uint8List.fromList(utf8.encode(chunk)));
+
+  void clear() => _buf.clear();
 }
 
 class SecurityEvent {
@@ -309,17 +423,56 @@ class SecurityEvent {
 
   /// Wall-clock time when the console recorded the event (not MCU session ms).
   final DateTime at;
+
+  /// Downstream hub port 0–3. Legacy host-link rows may use [systemPort].
   final int port;
   final int threatCode;
   final String threatName;
   final PortState state;
   final String message;
 
-  SecurityEvent copyWith({int? id}) {
+  /// Marker for legacy host/UART status rows (no longer logged).
+  static const int systemPort = -1;
+
+  /// True for host/UART link noise (filtered out of the security log).
+  bool get isSystem => port < 0 || isHostLinkMessage(message);
+
+  /// Operator-facing port label (`Port 1` … or `System`).
+  String get portLabel => isSystem ? 'System' : 'Port ${port + 1}';
+
+  /// Bold threat title for the log; null when there is no real threat.
+  /// Manual isolate is operator action — message alone is enough (no title).
+  String? get threatHeadline {
+    if (threatCode <= 0 ||
+        threatCode == ThreatCode.manualHostKill.value) {
+      return null;
+    }
+    return ThreatCode.summaryFor(threatCode);
+  }
+
+  /// Host transport / COM picker messages (not a downstream hub port).
+  static bool isHostLinkMessage(String message) {
+    final m = message.trimLeft();
+    return m.startsWith('UART ') ||
+        m.startsWith('Serial port ') ||
+        m.startsWith('Reconnect failed') ||
+        m.startsWith('Port switch failed') ||
+        m.startsWith('Baud rate ');
+  }
+
+  /// Normalize legacy DB rows that stored system events as port 0.
+  SecurityEvent normalized() {
+    if (port < 0 || !isHostLinkMessage(message)) {
+      return this;
+    }
+    return copyWith(port: systemPort);
+  }
+
+  SecurityEvent copyWith({int? id, int? port}) {
     return SecurityEvent(
       id: id ?? this.id,
       at: at,
-      port: port,
+      port: port ?? this.port,
       threatCode: threatCode,
       threatName: threatName,
       state: state,

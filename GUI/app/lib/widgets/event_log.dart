@@ -408,36 +408,29 @@ class _EventLogPanelState extends State<EventLogPanel> {
                                             color: HubColors.accent,
                                           ),
                                         ),
-                                        const Spacer(),
-                                        Text(
-                                          'Port ${event.port + 1}',
-                                          style: GoogleFonts.ibmPlexMono(
-                                            fontSize: 11,
-                                            color: HubColors.muted,
+                                        if (!event.isSystem) ...[
+                                          const Spacer(),
+                                          Text(
+                                            event.portLabel,
+                                            style: GoogleFonts.ibmPlexSans(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 0.2,
+                                              color: HubColors.text,
+                                            ),
                                           ),
-                                        ),
+                                        ],
                                       ],
                                     ),
                                     const SizedBox(height: 6),
-                                    Text(
-                                      event.threatCode > 0
-                                          ? ThreatCode.summaryFor(
-                                              event.threatCode,
-                                            )
-                                          : event.threatName,
-                                      style: GoogleFonts.ibmPlexSans(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
                                     Text(
                                       event.message,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: GoogleFonts.ibmPlexSans(
                                         fontSize: 13,
-                                        color: HubColors.muted,
+                                        fontWeight: FontWeight.w500,
+                                        color: HubColors.text,
                                       ),
                                     ),
                                   ],

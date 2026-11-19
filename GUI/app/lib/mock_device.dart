@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'hub_device.dart';
 import 'protocol.dart';
@@ -27,7 +26,6 @@ class MockDevice implements HubDevice {
   }
 
   late final List<_Port> _ports;
-  final _rng = Random();
   DateTime _startTime = DateTime.now();
   int _scriptStage = 0;
   final _framesController = StreamController<TelemetryFrame>.broadcast();
@@ -48,6 +46,12 @@ class MockDevice implements HubDevice {
   bool get supportsPortSelect => false;
 
   @override
+  bool get supportsBaudSelect => false;
+
+  @override
+  int get baudRate => SerialBaud.defaultRate;
+
+  @override
   void reconnect() {}
 
   @override
@@ -55,6 +59,9 @@ class MockDevice implements HubDevice {
 
   @override
   void setSerialPort(String portPath) {}
+
+  @override
+  void setBaudRate(int baud) {}
 
   @override
   bool get isPolled => true;
@@ -97,7 +104,7 @@ class MockDevice implements HubDevice {
     return (
       port.state,
       port.threatCode,
-      'Port $portId manually isolated by operator',
+      'Isolate command sent',
     );
   }
 
@@ -114,7 +121,7 @@ class MockDevice implements HubDevice {
     return (
       port.state,
       port.threatCode,
-      'Port $portId restored and authorized',
+      'Restore command sent',
     );
   }
 
@@ -125,7 +132,7 @@ class MockDevice implements HubDevice {
       return (
         port.state,
         port.threatCode,
-        'Clear fault ignored on port $portId — use Confirm keyboard',
+        'Clear fault ignored — use Confirm keyboard',
       );
     }
     if (port.threatCode == ThreatCode.noFault.value) {
@@ -147,14 +154,14 @@ class MockDevice implements HubDevice {
       return (
         port.state,
         port.threatCode,
-        'Fault cleared on port $portId ($previous); port remains isolated',
+        'Fault cleared ($previous); remains isolated',
       );
     }
 
     return (
       port.state,
       port.threatCode,
-      'Fault cleared on port $portId ($previous)',
+      'Fault cleared ($previous)',
     );
   }
 
@@ -170,7 +177,7 @@ class MockDevice implements HubDevice {
     return (
       port.state,
       port.threatCode,
-      'Port $portId HID confirmed by operator',
+      'Confirm HID command sent',
     );
   }
 

@@ -8,8 +8,10 @@
 # Usage (from GUI/ in PowerShell):
 #   .\scripts\run_windows_serial.ps1
 #   .\scripts\run_windows_serial.ps1 -Port COM3   # optional preselect
+#   make windows-serial
+#   make windows-serial PORT=COM3
 #
-# Mock (no serial):  .\scripts\run_windows_mock.ps1
+# Mock (no serial):  .\scripts\run_windows_mock.ps1  /  make windows-mock
 
 param(
     [string]$Port = "",
@@ -54,6 +56,10 @@ Write-Host "Peer may be mcu_sim (dummy) OR Black Pill Firmware/ UART stub."
 Write-Host "Use the header COM dropdown to select/change ports without restarting."
 Write-Host ""
 
-Set-Location $App
-flutter pub get
-flutter run -d windows --$Mode @defines
+Push-Location $App
+try {
+    flutter pub get
+    flutter run -d windows --$Mode @defines
+} finally {
+    Pop-Location
+}

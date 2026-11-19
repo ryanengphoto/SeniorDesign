@@ -48,7 +48,9 @@
 #define STATE_AUTHORIZED "AUTHORIZED"
 #define STATE_QUARANTINED "QUARANTINED"
 #define STATE_MANUAL_BLOCKED "MANUAL_BLOCKED"
+#define STATE_PENDING_HID_CONFIRM "PENDING_HID_CONFIRM"
 
 #define CMD_ISOLATE_PORT "isolate_port"
 #define CMD_RESTORE_PORT "restore_port"
 #define CMD_CLEAR_FAULT "clear_fault"
+#define CMD_CONFIRM_HID "confirm_hid"
