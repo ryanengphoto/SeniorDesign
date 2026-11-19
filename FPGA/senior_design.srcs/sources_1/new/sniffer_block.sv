@@ -137,16 +137,28 @@ module sniffer_block #(
                               (policy_mode == `CTRL_POLICY_HID_CONFIRM) &&
                               !hid_approved;
 
-    // HID-after-confirm session latch. Disconnect clears pending + approval so
-    // the next plug must confirm again. clear_fault does NOT release pending.
+    // HID-after-confirm session latch.
+    // - Disconnect clears pending + approval (next plug must confirm).
+    // - Manual kill also ends the session: isolate→restore must not keep a
+    //   prior APPROVE_HID (else a swapped rubber ducky rides AUTHORIZED).
+    // - clear_fault does NOT release pending / does NOT approve.
+    // - After manual_kill drops, re-arm pending if a HID is still enumerated.
     always_ff @(posedge clk_48m) begin
         if (rst || disconnect_stb) begin
+            hid_pending  <= 1'b0;
+            hid_approved <= 1'b0;
+        end else if (manual_kill) begin
             hid_pending  <= 1'b0;
             hid_approved <= 1'b0;
         end else if (approve_hid) begin
             hid_pending  <= 1'b0;
             hid_approved <= 1'b1;
         end else if (hid_pending_set) begin
+            hid_pending  <= 1'b1;
+        end else if (!hid_pending && !hid_approved &&
+                     (policy_mode == `CTRL_POLICY_HID_CONFIRM) &&
+                     speed_valid && intf_class_valid &&
+                     (intf_class == 8'h03)) begin
             hid_pending  <= 1'b1;
         end
     end
@@ -169,19 +181,33 @@ module sniffer_block #(
         .threat_code   (iso_threat)
     );
 
+    // HID_CONFIRM: hold kill from attach until we know the interface is *not*
+    // HID, or until APPROVE_HID. Closing the pre-class window matters on a
+    // wired mux/eFuse — otherwise the host fully enumerates (Rubber Ducky)
+    // while UART still shows AUTHORIZED / "Device attached", and the USB bus
+    // storm can knock over a CP2102 on the same hub.
+    // Also covers isolate→restore before the hid_pending FF re-arms.
+    wire hid_confirm_hold =
+        (policy_mode == `CTRL_POLICY_HID_CONFIRM) &&
+        attached && speed_valid &&
+        !hid_approved &&
+        !manual_kill &&
+        (!intf_class_valid || (intf_class == 8'h03));
+
     // Pending HID hold ORs into kill; threat_code stays the sticky ISO code
     // (0 while only pending) — GUI keys off STATUS HID-pending bit / UART state.
-    assign kill        = iso_kill | hid_pending;
+    assign kill        = iso_kill | hid_pending | hid_confirm_hold;
     assign threat_code = iso_threat;
 
     // Midterm Table 26 / Fig. 19 port-status byte (provisional bit map).
     always_comb begin
         port_status = 8'h00;
         port_status[`PORT_STATUS_ATTACHED_BIT]        = attached;
-        port_status[`PORT_STATUS_HID_PENDING_BIT]     = hid_pending;
+        port_status[`PORT_STATUS_HID_PENDING_BIT]     =
+            hid_pending | hid_confirm_hold;
         port_status[`PORT_STATUS_ISOLATED_BIT]        = kill;
         port_status[`PORT_STATUS_THREAT_PRESENT_BIT]  =
-            (iso_threat != `THREAT_NO_FAULT) | hid_pending;
+            (iso_threat != `THREAT_NO_FAULT) | hid_pending | hid_confirm_hold;
     end
 
 `ifndef VERILATOR
@@ -197,6 +223,7 @@ module sniffer_block #(
         .intf_class        (intf_class),
         .hid_threat_pulse  (hid_threat_pulse),
         .hid_pending       (hid_pending),
+        .hid_confirm_hold  (hid_confirm_hold),
         .threat_pulse      (threat_pulse),
         .threat_code_in    (threat_code_in),
         .attached          (attached),

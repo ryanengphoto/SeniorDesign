@@ -205,6 +205,22 @@ class HubService {
     if (next != _lastMode) {
       _lastMode = next;
     }
+    // Serial link lost: clear frozen port cards (last JSON before CP2102 went quiet).
+    final lower = next.toLowerCase();
+    if (lower.contains('error') || lower.contains('reconnect')) {
+      if (latestTelemetry != null) {
+        latestTelemetry = null;
+        _lastSnapshot.clear();
+        if (!_telemetryController.isClosed) {
+          _telemetryController.add(
+            TelemetryFrame(
+              timestampMs: DateTime.now().millisecondsSinceEpoch,
+              ports: const [],
+            ),
+          );
+        }
+      }
+    }
     _emitStatusOnly();
   }
 
@@ -247,8 +263,11 @@ class HubService {
         _stalePendingAfterConfirm.add(port);
       case CommandType.isolatePort:
         _staleAuthorizedAfterIsolate.add(port);
+        // Isolate ends any prior HID-confirm session; don't suppress the next PENDING.
+        _stalePendingAfterConfirm.remove(port);
       case CommandType.restorePort:
         _staleAuthorizedAfterIsolate.remove(port);
+        _stalePendingAfterConfirm.remove(port);
       case CommandType.clearFault:
         _lastSnapshot[port] = (state, threatCode);
     }
@@ -335,6 +354,10 @@ class HubService {
 
       if (port.state == PortState.authorized) {
         _stalePendingAfterConfirm.remove(port.port);
+      }
+      if (port.state == PortState.disconnected) {
+        _stalePendingAfterConfirm.remove(port.port);
+        _staleAuthorizedAfterIsolate.remove(port.port);
       }
 
       final threat = ThreatCode.fromValue(port.threatCode);

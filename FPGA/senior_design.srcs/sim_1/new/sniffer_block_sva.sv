@@ -18,6 +18,7 @@ module sniffer_block_sva (
     input logic [7:0] intf_class,
     input logic       hid_threat_pulse,
     input logic       hid_pending,
+    input logic       hid_confirm_hold, // comb OR into pending/kill (restore gap)
     input logic       threat_pulse,
     input logic [3:0] threat_code_in,
     input logic       attached,
@@ -61,10 +62,12 @@ module sniffer_block_sva (
                     $error("sniffer_block SVA: ATTACHED bit mismatch");
                 if (port_status[`PORT_STATUS_ISOLATED_BIT] !== kill)
                     $error("sniffer_block SVA: ISOLATED bit mismatch");
-                if (port_status[`PORT_STATUS_HID_PENDING_BIT] !== hid_pending)
+                if (port_status[`PORT_STATUS_HID_PENDING_BIT] !==
+                    (hid_pending | hid_confirm_hold))
                     $error("sniffer_block SVA: HID_PENDING bit mismatch");
                 if (port_status[`PORT_STATUS_THREAT_PRESENT_BIT] !==
-                    ((threat_code != `THREAT_NO_FAULT) | hid_pending))
+                    ((threat_code != `THREAT_NO_FAULT) | hid_pending |
+                     hid_confirm_hold))
                     $error("sniffer_block SVA: THREAT_PRESENT bit mismatch");
                 // Reserved mid bits except HID pending (bit 4)
                 if ((port_status & 8'h2E) != 8'h00)

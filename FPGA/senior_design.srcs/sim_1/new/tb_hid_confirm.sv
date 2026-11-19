@@ -3,7 +3,8 @@
 //////////////////////////////////////////////////////////////////////////////////
 // Module: tb_hid_confirm
 // Purpose: HID-after-confirm policy — HID enum → pending hold (not 0x1);
-//   clear_fault keeps hold; approve_hid releases; SE0 clears pending/approval.
+//   clear_fault keeps hold; approve_hid releases; manual_kill clears approval
+//   and re-arms pending; SE0 clears pending/approval.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -315,6 +316,18 @@ module tb_hid_confirm;
             errors++;
         end else
             $display("approve_hid OK");
+
+        // Manual kill must clear approval so isolate→restore cannot keep AUTHORIZED
+        // across a later HID (rubber ducky after a confirmed keyboard).
+        manual_kill[0] = 1'b1;
+        @(posedge clk_48m);
+        manual_kill[0] = 1'b0;
+        repeat (8) @(posedge clk_48m);
+        if (!port_status[0][`PORT_STATUS_HID_PENDING_BIT]) begin
+            $error("expected HID pending re-arm after manual_kill release");
+            errors++;
+        end else
+            $display("manual_kill cleared approve + re-armed pending OK");
 
         // Disconnect re-arm (pending/approved clear on disconnect_stb) is in
         // sniffer_block; SE0 bounce here trips enum SVA timing — omit wire replay.

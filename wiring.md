@@ -3,17 +3,25 @@
 Provisional **stand-alone** bring-up (no carrier PCB). Source of truth for Cmod pins:
 
 - Constraints: `FPGA/senior_design.srcs/constrs_1/new/cmod_s7_bringup.xdc`
-- UART MCU pins: `Firmware/include/protocol.h`
-- SPI MCU pins: `Firmware/include/fpga_spi.h`
+- UART MCU pins: `Firmware/include/protocol.h` / CubeIDE USART1 — both **PA9/PA10** → CP2102
+- SPI MCU pins: `Firmware/include/fpga_spi.h` (Black Pill SPI1) / CubeIDE SPI2 (Nucleo)
 - Narrative: `FPGA/bringup.md`
 
 **3.3 V I/O only.** Do **not** cross VCC between USB-powered boards — **GND ↔ GND** only.
 
+If the CP2102 COM stream dies when a USB device (e.g. Rubber Ducky) attaches:
+
+1. **Soft-tap without mux/eFuse in series does not stop host USB.** Kill LEDs can light while the Ducky still fully enumerates on the PC — that bus traffic often browns out a CP2102 on the **same** USB hub. Put the CP2102 on a **different USB root/hub** than the host breakout, or wire `mux_en_n` / `efuse_en` so kill actually opens the data/power path.
+2. Keep UART jumpers short and away from D+/D−; star GND (Nucleo ↔ CP2102 ↔ Cmod ↔ breakout).
+3. After flashing CubeIDE, miniterm should show `{"mcu":"uart_bm6"}` at boot and keep streaming JSON indefinitely (no host ACK).
+
+Pick **one** MCU for the bench: Black Pill (PlatformIO) **or** NUCLEO-F411RE (CubeIDE). Host UART is the same on both (**USART1 PA9/PA10 ↔ CP2102**). Cmod SPI harness is the same; only MCU SPI pins differ.
+
 ```
-  PC ──USB-C──► Black Pill (power + DFU)
-  PC ──USB────► CP2102 ──UART──► Black Pill PA9/PA10
-  PC ──USB────► Cmod S7 (power + JTAG)
-  Black Pill SPI1 ──jumpers──► Cmod DIP PIO40–43
+  PC ──USB──► MCU (power + flash)     Black Pill USB-C  |  Nucleo ST-LINK USB (SWD only)
+  PC ──USB──► CP2102 ──UART──► MCU PA9/PA10 (USART1)   ← same on both MCUs
+  PC ──USB──► Cmod S7 (power + JTAG)
+  MCU SPI ──jumpers──► Cmod DIP PIO40–43
   PC host ↔ FS/LS device ──passthrough──► USB breakout
        └─ D+/D−/GND tap ──► Cmod port taps (PIO)
 ```
@@ -41,15 +49,17 @@ All FPGA I/O below is from `cmod_s7_bringup.xdc`. **Package** = Spartan-7 ball; 
 
 ### SPI slave (MCU ↔ FPGA) — header J2
 
-| RTL port | Package | DIP / PIO | Black Pill (SPI1) |
-| --- | --- | --- | --- |
-| `spi_sck` | **C5** | **PIO40** | **PA5** |
-| `spi_mosi` | **A2** | **PIO41** | **PA7** |
-| `spi_miso` | **B2** | **PIO42** | **PA6** |
-| `spi_cs_n` | **B1** | **PIO43** | **PA4** |
-| GND | — | any Cmod GND | **GND** |
+| RTL port | Package | DIP / PIO | Black Pill (SPI1) | NUCLEO-F411RE (SPI2) |
+| --- | --- | --- | --- | --- |
+| `spi_sck` | **C5** | **PIO40** | **PA5** | **PB13** (Morpho **CN10-30**) |
+| `spi_mosi` | **A2** | **PIO41** | **PA7** | **PB15** (Morpho **CN10-26**) |
+| `spi_miso` | **B2** | **PIO42** | **PA6** | **PB14** (Morpho **CN10-28**) |
+| `spi_cs_n` | **B1** | **PIO43** | **PA4** | **PB12** (Morpho **CN10-16**) |
+| GND | — | any Cmod GND | **GND** | **GND** |
 
 Mode 0, ~1 MHz bring-up. Cmod PIO has Digilent series R — keep SPI ≤ a few MHz. **Not** Pmod JA.
+
+**Why Nucleo differs:** On NUCLEO-F411RE, Arduino **D13 / PA5** is both SPI1_SCK *and* green user LED **LD2** (UM1724). CubeIDE firmware uses **SPI2 on PB12–PB15** so LD2 can pulse like the Black Pill status LED. Do **not** use Arduino D10–D13 for Nucleo SPI in this project (D10 CS is PB6; D13 is the LED).
 
 ### USB port taps + kill outs — all four channels
 
@@ -78,7 +88,18 @@ FPGA fabric instantiates all four sniffers. **SPI bring-up firmware polls ports 
 
 ---
 
-## Host UART (MCU ↔ CP2102 ↔ PC)
+## MCU option A — Black Pill (PlatformIO)
+
+```
+  PC ──USB-C──► Black Pill (power + DFU)
+  PC ──USB────► CP2102 ──UART──► Black Pill PA9/PA10
+  PC ──USB────► Cmod S7 (power + JTAG)
+  Black Pill SPI1 ──jumpers──► Cmod DIP PIO40–43
+```
+
+Tree: `Firmware/` (`make -C Firmware build` / `upload`). Status LED: **PC13** (active-low).
+
+### Host UART (Black Pill ↔ CP2102 ↔ PC)
 
 115200 8-N-1. CP2102 shows up as a COM port (often `COM3`).
 
@@ -90,6 +111,52 @@ FPGA fabric instantiates all four sniffers. **SPI bring-up firmware polls ports 
 | VCC | — | leave disconnected if both USB-powered |
 
 TX/RX are **crossed** (MCU TX → dongle RX).
+
+### SPI jumpers (Black Pill)
+
+| Black Pill (SPI1) | Direction | Cmod DIP |
+| --- | --- | --- |
+| **PA5** SCK | → | **PIO40** |
+| **PA7** MOSI | → | **PIO41** |
+| **PA6** MISO | ← | **PIO42** |
+| **PA4** CS_n | → | **PIO43** |
+| **GND** | ↔ | **GND** |
+
+---
+
+## MCU option B — NUCLEO-F411RE (CubeIDE)
+
+```
+  PC ──USB────► Nucleo ST-LINK (power + SWD only — not used for GUI UART)
+  PC ──USB────► CP2102 ──UART──► Nucleo PA9/PA10 (USART1)
+  PC ──USB────► Cmod S7 (power + JTAG)
+  Nucleo SPI2 ──jumpers──► Cmod DIP PIO40–43
+```
+
+Tree: `CubeIDEProject/Group19_MCU_Demo/`. Status LED: onboard **LD2** on **PA5** (active-high). Host UART matches Black Pill / carrier: **USART1 PA9/PA10 ↔ CP2102** (do **not** use ST-LINK VCP for the GUI).
+
+### Host UART (Nucleo ↔ CP2102)
+
+Same crossing as Black Pill. 115200 8-N-1. Pick the **CP2102** COM port in the GUI (not the ST-LINK COM).
+
+| Signal | Nucleo | Header | Wire to CP2102 |
+| --- | --- | --- | --- |
+| TX | **PA9** (USART1_TX) | Arduino **D8** | **RX** |
+| RX | **PA10** (USART1_RX) | Arduino **D2** | **TX** |
+| GND | **GND** | any GND | **GND** |
+| VCC | — | — | leave disconnected if both USB-powered |
+
+### SPI jumpers (Nucleo) — use Morpho CN10
+
+| Nucleo (SPI2) | Morpho pin | Direction | Cmod DIP |
+| --- | --- | --- | --- |
+| **PB13** SCK | **CN10-30** | → | **PIO40** |
+| **PB15** MOSI | **CN10-26** | → | **PIO41** |
+| **PB14** MISO | **CN10-28** | ← | **PIO42** |
+| **PB12** CS_n | **CN10-16** | → | **PIO43** |
+| **GND** | CN7/CN10 GND | ↔ | **GND** |
+
+CN10 pin numbers: ST Morpho connector on the **right** edge of the board (UM1724 Fig. 18 / Table 16 family). Confirm silkscreen against the Nucleo pinout card if unsure.
 
 ---
 
@@ -139,18 +206,21 @@ Short D+/D− jumpers; common GND with PC/device/Cmod. Soft RX auto-selects **FS
 | Cable | Board | Purpose |
 | --- | --- | --- |
 | USB-C | Black Pill | Power + DFU flash |
-| USB-A/C | CP2102 | Host UART / GUI |
+| USB (Mini-B / ST-LINK) | NUCLEO-F411RE | Power + SWD + VCP |
+| USB-A/C | CP2102 | Host UART / GUI (**Black Pill only**) |
 | USB micro | Cmod S7 | Power + Vivado JTAG / bitstream |
 
 ---
 
 ## Flash & view (cheat sheet)
 
+### Black Pill
+
 ```powershell
 # MCU DFU: hold BOOT0, tap NRST, release BOOT0
 make -C Firmware upload
 
-# List COM, then watch UART
+# List COM, then watch UART (CP2102)
 .\GUI\scripts\list_com_ports.ps1
 py -3 -m serial.tools.miniterm COMx 115200
 
@@ -158,7 +228,11 @@ py -3 -m serial.tools.miniterm COMx 115200
 .\GUI\scripts\run_windows_serial.ps1
 ```
 
-Cmod bitstream: `make -C FPGA prog` (after `make -C FPGA build`).
+### Nucleo
+
+Flash/debug from **STM32CubeIDE** (`CubeIDEProject/Group19_MCU_Demo`). Open the **CP2102** COM port @ 115200 (same as Black Pill), or pick that COM in the GUI — not the ST-LINK VCP port.
+
+Cmod bitstream (either MCU): `make -C FPGA prog` (after `make -C FPGA build`).
 
 ---
 
@@ -166,6 +240,7 @@ Cmod bitstream: `make -C FPGA prog` (after `make -C FPGA build`).
 
 | Doc | Detail |
 | --- | --- |
-| `Firmware/README.md` | Firmware modes, expected SPI selfstim values |
+| `Firmware/README.md` | Black Pill PlatformIO modes, expected SPI selfstim values |
+| `CubeIDEProject/Group19_MCU_Demo/` | Nucleo CubeIDE project (SPI2 + LD2) |
 | `FPGA/bringup.md` | LED demo, Cmod pin cheat sheet |
 | `Docs/Board_slop.md` | Final carrier bus intent (may differ from this bench map) |

@@ -22,6 +22,8 @@ Prototype soft-tap bring-up — not production carrier firmware. No power sensor
 | **Cmod S7** USB | FPGA power + JTAG program (`make -C FPGA prog`) |
 | SPI jumpers | MCU SPI1 ↔ Cmod DIP **PIO40–43** (see `wiring.md`) |
 
+**Nucleo alternate:** `CubeIDEProject/Group19_MCU_Demo/` targets **NUCLEO-F411RE** with **SPI2 (PB12–15)** + **LD2 on PA5** and **USART1 PA9/PA10 ↔ CP2102** (same UART pins as Black Pill). See **MCU option B** in [`wiring.md`](../wiring.md).
+
 ### Provisional UART jumpers (`include/protocol.h`)
 
 | Black Pill | Direction | CP2102 |

@@ -152,7 +152,7 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 |:---:|---|---|---|
 | `0x0` | `NO_FAULT` | Normal operation. | Normal passthrough (MUX closed). |
 | `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage-only policy (`Pn_CONTROL[2:0]=0`). | Open MUX (<20 ns), cut eFuse, update status. |
-| — | *(HID pending)* | HID class on HID-after-confirm policy (`[2:0]=1`). | Hold kill + `Pn_STATUS[4]`; **not** threat `0x1`. Release only via `APPROVE_HID` (`[5]`) or disconnect. `clear_fault` does not approve. |
+| — | *(HID pending)* | HID-after-confirm policy (`[2:0]=1`): hold from **attach** until interface class is known and is not HID, or until HID is `APPROVE_HID`'d. | Hold kill + `Pn_STATUS[4]`; **not** threat `0x1`. Release via `APPROVE_HID` (`[5]`), disconnect, non-HID class complete, or **manual kill** (isolate ends the approve session; restore re-arms pending if HID still attached). `clear_fault` does not approve. |
 | `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open MUX (≤100 ns target), update status. |
 | `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Drop packets, update status. |
 | `0x4` | `DESCRIPTOR_OVERFLOW` | `wTotalLength > 512` or length mismatch. | Isolate port, update status. |

@@ -149,6 +149,47 @@ void main() {
     hub.dispose();
   });
 
+  test('isolate/restore clears confirm suppress so later PENDING can log', () async {
+    final device = ScriptedDevice(initialPorts: _four(_port(0, PortState.authorized)));
+    final hub = HubService(device: device, eventLog: memoryEventLogStore());
+    await hub.start();
+    device.emit();
+    await _settle();
+
+    // Arm confirm suppress with AUTHORIZED snapshot (same race as first test).
+    device.setPort(_port(0, PortState.pendingHidConfirm));
+    hub.handleCommand(CommandType.confirmHid, 0);
+    await _settle();
+    device.setPort(_port(0, PortState.pendingHidConfirm));
+    device.emit();
+    await _settle();
+    expect(
+      hub.events.where((e) => e.message.contains('waiting for operator')),
+      isEmpty,
+    );
+
+    // Isolate must drop that suppress so a post-restore PENDING is visible.
+    hub.handleCommand(CommandType.isolatePort, 0);
+    await _settle();
+    device.setPort(
+      _port(0, PortState.manualBlocked, threat: ThreatCode.manualHostKill.value),
+    );
+    device.emit();
+    await _settle();
+
+    hub.handleCommand(CommandType.restorePort, 0);
+    await _settle();
+    device.setPort(_port(0, PortState.pendingHidConfirm));
+    device.emit();
+    await _settle();
+    expect(
+      hub.events.map((e) => e.message),
+      contains('HID device waiting for operator confirm'),
+    );
+
+    hub.dispose();
+  });
+
   test('attach then pending logs Device attached then HID waiting', () async {
     final device = ScriptedDevice(
       initialPorts: _four(

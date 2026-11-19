@@ -26,16 +26,24 @@ if {![file exists $bit]} {
 }
 puts "Programming bitstream: $bit"
 
+# Batch mode does not load Hardware Manager until labtools is requested.
+catch {load_features labtools}
+catch {load_features labtools_2}
+
 # Prefer classic 2018.x API; fall back to newer open_hw_manager if present.
 if {[llength [info commands open_hw]] > 0} {
   open_hw
 } elseif {[llength [info commands open_hw_manager]] > 0} {
   open_hw_manager
 } else {
-  error "Neither open_hw nor open_hw_manager is available in this Vivado."
+  error "Neither open_hw nor open_hw_manager is available (try: load_features labtools)."
 }
 
-connect_hw_server -allow_non_jtag
+# -allow_non_jtag is newer Vivado only; 2018.2 rejects it.
+if {[catch {connect_hw_server -allow_non_jtag} err]} {
+  puts "connect_hw_server -allow_non_jtag unavailable ($err); retrying plain connect"
+  connect_hw_server
+}
 open_hw_target
 
 set devices [get_hw_devices]

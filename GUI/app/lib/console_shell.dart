@@ -76,6 +76,12 @@ class _ConsoleShellState extends State<ConsoleShell> {
           _promptedPendingPorts.add(p.port);
           _showKeyboardConfirmDialog(p);
         }
+      } else if (p.state == PortState.manualBlocked ||
+          p.state == PortState.disconnected ||
+          p.state == PortState.authorized) {
+        // Isolate / unplug / confirm ends the prior prompt session so a later
+        // PENDING (restore re-arm or new plug) can show the dialog again.
+        _promptedPendingPorts.remove(p.port);
       }
     }
 

@@ -729,6 +729,9 @@ class SerialDevice implements HubDevice {
     final alreadyDown = _error && !_transportOpen;
     _error = true;
     _errorMessage = message;
+    // Drop last frame so the UI cannot show AUTHORIZED/PENDING while COM is dead.
+    _latest = null;
+    _lastFrameAt = null;
     if (!alreadyDown) {
       _closeTransportOnly();
     }
