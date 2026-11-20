@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'dashboard_page.dart';
+import 'console_shell.dart';
 import 'hub_service.dart';
 import 'theme.dart';
 
@@ -18,10 +18,10 @@ class HubConsoleApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'USB Hub Operator Console',
+      title: 'Peripheral Interface Security System',
       debugShowCheckedModeBanner: false,
       theme: buildHubTheme(),
-      home: DashboardPage(hub: hub),
+      home: ConsoleShell(hub: hub),
     );
   }
 }

@@ -20,6 +20,9 @@ void main() {
     expect(iso.$3, contains('link down'));
 
     expect(() => device.reconnect(), returnsNormally);
+    expect(device.supportsPortSelect, isTrue);
+    expect(() => device.setSerialPort('COM3'), returnsNormally);
+    expect(device.portPath, 'COM3');
     device.dispose();
   });
 

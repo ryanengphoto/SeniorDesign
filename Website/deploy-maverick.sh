@@ -73,14 +73,17 @@ if [[ ! -d "$DIST" ]]; then
   exit 1
 fi
 
-# Guard: public PDF must match what we are about to upload from dist/
-if [[ -f "$ROOT/public/docs/divide-and-conquer.pdf" ]]; then
-  if [[ ! -f "$DIST/docs/divide-and-conquer.pdf" ]] \
-    || ! cmp -s "$ROOT/public/docs/divide-and-conquer.pdf" "$DIST/docs/divide-and-conquer.pdf"; then
-    echo "==> dist/docs PDF out of date — rebuilding..."
-    (cd "$ROOT" && npm run build)
+# Guard: public PDFs must match what we are about to upload from dist/
+for pdf in divide-and-conquer.pdf midterm-milestone.pdf; do
+  if [[ -f "$ROOT/public/docs/$pdf" ]]; then
+    if [[ ! -f "$DIST/docs/$pdf" ]] \
+      || ! cmp -s "$ROOT/public/docs/$pdf" "$DIST/docs/$pdf"; then
+      echo "==> dist/docs/$pdf out of date — rebuilding..."
+      (cd "$ROOT" && npm run build)
+      break
+    fi
   fi
-fi
+done
 
 REMOTE="${USER}@${HOST}:${REMOTE_DIR}/"
 echo "==> Deploying $DIST/ -> $REMOTE"

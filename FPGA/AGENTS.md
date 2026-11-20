@@ -20,7 +20,9 @@ Vivado project for the hub’s FPGA fabric (RTL inspection/isolation). Distinct 
 - Constraints: `senior_design.srcs/constrs_1/new/cmod_s7_bringup.xdc` (Digilent onboard + PIO).
 - Sniff **in parallel** with the hub IC; default is not in-line. Kill on threat; status is stateful each cycle.
 - FPGA = SPI **slave**; sniffer clock **48 MHz**.
-- Soft USB RX is TinyFPGA-derived (`usb_fs_rx` / `strobe`); Apache-2.0 copies under `third_party/tinyfpga/`.
+- Soft USB RX is TinyFPGA-derived selectable FS/LS (`usb_sie_rx`); Apache-2.0 under `third_party/tinyfpga/`.
+  Same-clock fabric (no `strobe`/`dflip` CDC). Legacy `usb_fs_rx` / `strobe` / `usb_reset_det` → [`references/`](references/).
+  `is_ls` + `speed_valid` come from `usb_line_attach`. Kills muted until speed lock.
   Per-port path: `usb_packet_frontend` → `isolation_controller` inside `sniffer_block`; `sniffer_wrapper` generates ×`NUM_PORTS`.
 - Default sim top: `tb_sniffer`. Shared stimulus: `usb_fs_tx` (sim TBs + on-FPGA `usb_demo_selfstim`). Full TB list and knobs: [`testing.md`](testing.md).
 
@@ -33,6 +35,7 @@ Vivado project for the hub’s FPGA fabric (RTL inspection/isolation). Distinct 
 | `scripts/*.tcl` | Batch flows used by Make (`build`, `synth`, `sim`, `sim_all`) |
 | `Makefile` | CLI entry points for agents and developers |
 | `testing.md` | **Testbenches, how to run sims, overrides, coverage** |
+| `references/` | Legacy TinyFPGA RTL not in `main_wrapper` (`usb_fs_rx`, `strobe`, `usb_reset_det`) |
 | `bringup.md` | Cmod stand-alone bring-up checklist (LEDs/SPI/bitstream) |
 | `.gitignore` | Ignores Vivado generated dirs (cache, runs, sim, hw, …) |
 

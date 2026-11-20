@@ -59,7 +59,7 @@ Both paths stay supported. **`SERIAL` + `mcu_sim` is still not PCB / STM32.**
 
 | Host | When to use | GUI | Peer |
 | --- | --- | --- | --- |
-| **Windows native** | CP2102s plug into Windows; no `usbipd` | `.\scripts\run_windows_serial.ps1 -Port COMx` | `python scripts\mcu_sim.py --port COMy -i` |
+| **Windows native** | CP2102s plug into Windows; no `usbipd` | `make windows-serial` (pick COM in UI) | MCU UART stub or `mcu_sim` |
 | **WSL / Linux** | PTY smoke test, or dongles attached into WSL | `make linux-serial SERIAL_PORT=…` | `make sim-mcu-i` or `mcu_sim.py --port /dev/ttyUSB0 -i` |
 
 ### Windows native (recommended for dual CP2102)
@@ -68,16 +68,16 @@ Needs Flutter for Windows + VS Desktop C++ workload, CP210x VCP drivers, `pip in
 
 ```powershell
 cd GUI
-.\scripts\list_com_ports.ps1
-
-# Terminal A — MCU side (one COM)
-python scripts\mcu_sim.py --port COM3 -i
-
-# Terminal B — GUI (the other COM)
-.\scripts\run_windows_serial.ps1 -Port COM4
+.\scripts\list_com_ports.ps1   # optional
+make windows-serial
+# Then pick COM in the app header dropdown
+# Optional preselect:  make windows-serial PORT=COM3
+# Or:  .\scripts\run_windows_serial.ps1 [-Port COM3]
 ```
 
-Mock on Windows (no serial): `.\scripts\run_windows_mock.ps1`
+Scripts restore your shell cwd on exit (no `cd ..` needed to re-run).
+
+Mock on Windows (no serial): `make windows-mock`
 
 ### WSL / Linux (PTY or usbipd ttyUSB)
 
@@ -132,8 +132,7 @@ Prototype status: see [`state.md`](state.md).
 ## Mock demo behavior
 
 - Port 1 starts disconnected; port 0 shows an authorized flash drive.
-- ~5 s: port 1 begins enumerating.
-- ~8 s: port 1 authorizes as a keyboard.
+- ~5 s: port 1 authorizes as a keyboard.
 - ~15 s: port 1 is quarantined for `KEYSTROKE_BURST` unless you isolate it first.
 
 Use **Isolate**, **Restore**, and **Clear fault** on any port to test the control loop. `mcu_sim.py` mirrors the same script over UART.

@@ -2,8 +2,8 @@
 
 //////////////////////////////////////////////////////////////////////////////////
 // Module: tb_hid_pending_approve
-// Purpose: HID-allowed default → HID config → kill 0x3 hold → approve releases;
-//          clear without approve re-arms hold.
+// Purpose: HID-confirm policy → HID config → pending hold (kill, threat 0) →
+//          approve_hid releases; clear_fault alone does not approve.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -29,7 +29,7 @@ module tb_hid_pending_approve;
 
     logic [`NUM_PORTS-1:0] clear_fault = '0;
     logic [`NUM_PORTS-1:0] manual_kill = '0;
-    logic [`NUM_PORTS-1:0] approve = '0;
+    logic [`NUM_PORTS-1:0] approve_hid = '0;
     logic [2:0]            policy_mode [`NUM_PORTS-1:0];
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code [`NUM_PORTS-1:0];
@@ -50,20 +50,18 @@ module tb_hid_pending_approve;
     logic       crc_ok     [`NUM_PORTS-1:0];
 
     initial begin : init_policy
-        for (int pi = 0; pi < `NUM_PORTS; pi++) policy_mode[pi] = `POLICY_HID_ALLOWED;
+        for (int pi = 0; pi < `NUM_PORTS; pi++) policy_mode[pi] = `CTRL_POLICY_HID_CONFIRM;
     end
 
-    sniffer_wrapper #(
-        .POLICY_STORAGE_ONLY(1'b0)
-    ) dut (
+    sniffer_wrapper dut (
         .clk_48m           (clk_48m),
         .rst               (rst),
         .dp                (dp),
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
-        .approve           (approve),
         .policy_mode       (policy_mode),
+        .approve_hid       (approve_hid),
         .kill              (kill),
         .threat_code       (threat_code),
         .threat_detail     (threat_detail),
@@ -233,7 +231,7 @@ module tb_hid_pending_approve;
         errors       = 0;
         packets_seen = 0;
 
-        $display("tb_hid_pending_approve: HID hold 0x3 → approve");
+        $display("tb_hid_pending_approve: HID confirm hold → approve_hid");
         repeat (32) @(posedge clk_48m);
         rst = 1'b0;
         wait_idle_bits(8);
@@ -262,10 +260,10 @@ module tb_hid_pending_approve;
         send_data_bytes(PID_DATA1, 18);
         repeat (16) @(posedge clk_48m);
 
-        if (!kill[0] || threat_code[0] !== `THREAT_COOLDOWN_BURST) begin
-            $error("expected HID hold 0x3, kill=%0b threat=%0h", kill[0], threat_code[0]);
+        if (!kill[0] || threat_code[0] !== `THREAT_NO_FAULT) begin
+            $error("expected HID confirm hold, kill=%0b threat=%0h", kill[0], threat_code[0]);
             errors++;
-        end else if (!port_status[0][`PORT_STATUS_PENDING_BIT]) begin
+        end else if (!port_status[0][`PORT_STATUS_HID_PENDING_BIT]) begin
             $error("pending bit not set"); errors++;
         end else
             $display("HID hold OK threat=%0h status=%02h", threat_code[0], port_status[0]);
@@ -274,21 +272,19 @@ module tb_hid_pending_approve;
         @(posedge clk_48m);
         clear_fault[0] = 1'b0;
         repeat (8) @(posedge clk_48m);
-        if (!kill[0] || threat_code[0] !== `THREAT_COOLDOWN_BURST) begin
-            $error("expected re-arm after clear-only"); errors++;
+        if (!kill[0] || threat_code[0] !== `THREAT_NO_FAULT) begin
+            $error("expected hold to remain after clear-only"); errors++;
         end else
             $display("re-arm after clear-only OK");
 
-        approve[0] = 1'b1;
-        clear_fault[0] = 1'b1;
+        approve_hid[0] = 1'b1;
         @(posedge clk_48m);
-        approve[0] = 1'b0;
-        clear_fault[0] = 1'b0;
+        approve_hid[0] = 1'b0;
         repeat (8) @(posedge clk_48m);
         if (kill[0] || threat_code[0] !== `THREAT_NO_FAULT) begin
             $error("approve failed kill=%0b threat=%0h", kill[0], threat_code[0]);
             errors++;
-        end else if (port_status[0][`PORT_STATUS_PENDING_BIT]) begin
+        end else if (port_status[0][`PORT_STATUS_HID_PENDING_BIT]) begin
             $error("pending still set after approve"); errors++;
         end else
             $display("approve OK");
@@ -301,7 +297,7 @@ module tb_hid_pending_approve;
         rst = 1'b1;
         repeat (8) @(posedge clk_48m);
         rst = 1'b0;
-        policy_mode[0] = `POLICY_STORAGE_ONLY;
+        policy_mode[0] = `CTRL_POLICY_STORAGE_ONLY;
         wait_idle_bits(8);
 
         send_setup_token();

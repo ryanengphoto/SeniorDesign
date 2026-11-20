@@ -28,14 +28,17 @@ module tb_spi_manual_kill;
 
     logic [`NUM_PORTS-1:0] clear_fault;
     logic [`NUM_PORTS-1:0] manual_kill;
+    logic [2:0]            policy_mode [`NUM_PORTS-1:0];
+    logic [`NUM_PORTS-1:0] approve_hid;
+    initial begin : init_policy
+        for (int pi = 0; pi < `NUM_PORTS; pi++)
+            policy_mode[pi] = `CTRL_POLICY_STORAGE_ONLY;
+        approve_hid = '0;
+    end
+
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code [`NUM_PORTS-1:0];
     logic [3:0]            threat_detail [`NUM_PORTS-1:0];
-    logic [`NUM_PORTS-1:0] approve = '0;
-    logic [2:0]            policy_mode [`NUM_PORTS-1:0];
-    initial begin : init_policy
-        for (int pi = 0; pi < `NUM_PORTS; pi++) policy_mode[pi] = 3'd0;
-    end
     logic [7:0]            port_status [`NUM_PORTS-1:0];
     logic [15:0]           vid         [`NUM_PORTS-1:0];
     logic [15:0]           pid_dev     [`NUM_PORTS-1:0];
@@ -62,8 +65,8 @@ module tb_spi_manual_kill;
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
-        .approve           (approve),
         .policy_mode       (policy_mode),
+        .approve_hid       (approve_hid),
         .kill              (kill),
         .threat_code       (threat_code),
         .threat_detail     (threat_detail),
@@ -101,8 +104,8 @@ module tb_spi_manual_kill;
         .intf_class  (intf_class),
         .clear_fault (clear_fault),
         .manual_kill (manual_kill),
-        .approve (approve),
-        .policy_mode (policy_mode)
+        .policy_mode (policy_mode),
+        .approve_hid (approve_hid)
     );
 
     spi_slave u_spi (

@@ -29,14 +29,12 @@ module tb_demo_threat;
 
     logic [`NUM_PORTS-1:0] clear_fault = '0;
     logic [`NUM_PORTS-1:0] manual_kill = '0;
+    logic [2:0]            policy_mode [`NUM_PORTS-1:0];
+    logic [`NUM_PORTS-1:0] approve_hid;
+
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code [`NUM_PORTS-1:0];
     logic [3:0]            threat_detail [`NUM_PORTS-1:0];
-    logic [`NUM_PORTS-1:0] approve = '0;
-    logic [2:0]            policy_mode [`NUM_PORTS-1:0];
-    initial begin : init_policy
-        for (int pi = 0; pi < `NUM_PORTS; pi++) policy_mode[pi] = 3'd0;
-    end
     logic [7:0]            port_status [`NUM_PORTS-1:0];
     logic [15:0]           vid         [`NUM_PORTS-1:0];
     logic [15:0]           pid_dev     [`NUM_PORTS-1:0];
@@ -52,17 +50,15 @@ module tb_demo_threat;
     logic [7:0] data       [`NUM_PORTS-1:0];
     logic       crc_ok     [`NUM_PORTS-1:0];
 
-    sniffer_wrapper #(
-        .POLICY_STORAGE_ONLY(1'b1)
-    ) dut (
+    sniffer_wrapper dut (
         .clk_48m           (clk_48m),
         .rst               (rst),
         .dp                (dp),
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
-        .approve           (approve),
         .policy_mode       (policy_mode),
+        .approve_hid       (approve_hid),
         .kill              (kill),
         .threat_code       (threat_code),
         .threat_detail     (threat_detail),
@@ -235,6 +231,13 @@ module tb_demo_threat;
     endtask
 
     initial begin
+
+        begin : __hid_policy_init
+            integer __pi;
+            for (__pi = 0; __pi < `NUM_PORTS; __pi = __pi + 1)
+                policy_mode[__pi] = `CTRL_POLICY_STORAGE_ONLY;
+            approve_hid = '0;
+        end
         tx_pkt_start = 1'b0;
         sending      = 1'b0;
         tx_pid       = 4'h0;

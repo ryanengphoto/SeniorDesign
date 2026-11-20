@@ -12,6 +12,12 @@ import 'package:hub_console/serial_device.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // PTY + /tmp links are a Linux/WSL path; Windows uses COM + make test-serial separately.
+  if (Platform.isWindows) {
+    test('SerialDevice Tier-1 PTY skipped on Windows', () {}, skip: 'Linux/WSL PTY only');
+    return;
+  }
+
   late Process pty;
   late Process sim;
   const hostPort = '/tmp/hub_host_test';

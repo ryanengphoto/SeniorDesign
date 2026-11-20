@@ -78,8 +78,8 @@ The architecture fits within the Spartan-7 XC7S25 envelope with low routing cong
 The design uses three internal clock domains derived from a single `MMCME2_BASE` primitive:
 
 * **`CLK_100M` (100.0 MHz):** System core clock driving the SPI Slave, internal register file, and host communications.
-* **`CLK_48M` (48.0 MHz):** Digital receiver clock providing 4x oversampling for 12 Mbps Full-Speed USB data.
-* **`CLK_12M` (12.0 MHz):** Base reference clock matching the USB 2.0 Full-Speed bit period.
+* **`CLK_48M` (48.0 MHz):** Soft RX clock. Full-Speed uses 4× oversample; Low-Speed uses 32×. `usb_sie_rx.is_ls` (from `usb_line_attach`) selects bit timing and J/K polarity. Kills are muted until `speed_valid`.
+* **`CLK_12M` (12.0 MHz):** Board reference / MMCM input (Cmod S7); not the LS bit clock.
 
 ### Clock Domain Crossing (CDC) Rules
 * Status and threat flags crossing from 48 MHz to 100 MHz pass through 2-stage flip-flop synchronizers with `ASYNC_REG = "TRUE"` attributes.
@@ -95,7 +95,7 @@ The design uses three internal clock domains derived from a single `MMCME2_BASE`
 * Decodes Single-Ended Zero (SE0), J-State, and K-State to detect End-of-Packet (EOP) and Bus Reset conditions.
 * Converts NRZI line encoding to standard binary.
 * Strips stuffed zero bits following runs of six consecutive ones.
-* Flags a `BIT_STUFF_ERROR` (`0x6`) if seven consecutive ones appear (stuff bit was 1); `usb_packet_frontend` pulses `bit_stuff_fault` at `pkt_end` (priority over CRC `0x5`).
+* `BIT_STUFF_ERROR` (`0x6`) is reserved. `usb_sie_rx` records stuff history but does not export a fault yet, so the sniffer does not latch `0x6`.
 
 ### 4.2. Packet Framing & CRC Validation (`usb_packet_checker.sv`)
 * Locks onto the 8-bit USB SYNC field (`0x80`).
@@ -144,8 +144,8 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | `0x00` | `SYS_STATUS` | RO | `0x00` | `[7:4]` Global Error Code, `[3:0]` Per-port kill sticky (ports 3..0) |
 | `0x01` | `SYS_CONTROL` | RW | `0x00` | `[7]` Global Soft Reset, `[3:0]` Force Global MUX Enable Override |
 | `0x02` | — | — | — | Reserved (unused; do not implement) |
-| `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill, `[6]` Clear Fault pulse, `[5]` **Approve HID** pulse (also clears kill), `[2:0]` Policy Mode (`0`=HID-allowed, `1`=storage-only) |
-| `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` HID pending approve, `[3:0]` Threat Code |
+| `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill (level), `[6]` Clear Fault (pulse), `[5]` Approve HID (pulse; does not itself clear a latched threat), `[2:0]` Policy Mode (`0`=storage-only HID→`0x1`, `1`=HID-after-confirm, `2`=HID allow) |
+| `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` Configured (0), `[4]` HID pending confirm, `[3:0]` Threat Code |
 | `0x12` | `P0_VID_HIGH` | RO | `0x00` | Parsed Vendor ID High Byte (`VID[15:8]`) |
 | `0x13` | `P0_VID_LOW` | RO | `0x00` | Parsed Vendor ID Low Byte (`VID[7:0]`) |
 | `0x14` | `P0_PID_HIGH` | RO | `0x00` | Parsed Product ID High Byte (`PID[15:8]`) |
@@ -157,7 +157,7 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | `0x30 – 0x38` | `P2_REGS` | — | — | Channel 2 mirror |
 | `0x40 – 0x48` | `P3_REGS` | — | — | Channel 3 mirror |
 
-**GUI/MCU contract:** host `approve_port` (or equivalent) → MCU SPI write `Pn_CONTROL[5]`. `clear_fault` alone releases kill but does **not** set `approved`; HID-hold re-arms if HID is still present.
+**GUI/MCU contract:** host `confirm_hid` → MCU SPI write `Pn_CONTROL[5]` (`APPROVE_HID`). `clear_fault` alone releases a latched threat but does **not** approve; HID-confirm hold re-arms if HID is still present. Suspicious-enum detail is `Pn_THREAT_DETAIL` (`0x18` / `0x28` / `0x38` / `0x48`).
 
 ---
 
@@ -166,12 +166,13 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | Threat Code (`4'h_`) | Threat Name | Trigger Condition | Hardware Action |
 |:---:|---|---|---|
 | `0x0` | `NO_FAULT` | Normal operation. | Normal passthrough (MUX closed). |
-| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage-only port. | Open MUX, cut eFuse, update status. |
-| `0x2` | `KEYSTROKE_BURST` | Key-down interval $\Delta t < 20\text{ ms}$ for $>3$ reports (post-approve). | Open MUX (≤100 ns target), update status. |
-| `0x3` | `COOLDOWN_BURST` | HID hold (pre-approve) **or** key-down during 2.0s post-enum cooldown (post-approve). | Isolate (open MUX), update status. |
+| `0x1` | `UNAUTHORIZED_HID` | Any HID interface after config walk on storage-only policy (`Pn_CONTROL[2:0]=0`). | Open MUX, cut eFuse, update status. |
+| — | *(HID pending)* | HID-after-confirm policy (`[2:0]=1`): hold from **attach** until interface class is known and is not HID, or until HID is `APPROVE_HID`'d. | Hold kill + `Pn_STATUS[4]`; **not** a threat code. Release via `APPROVE_HID` (`[5]`), disconnect, non-HID class complete, or **manual kill** (isolate ends the approve session; restore re-arms pending if HID still attached). `clear_fault` does not approve. |
+| `0x2` | `KEYSTROKE_BURST` | Key-down interval $\Delta t < 20\text{ ms}$ for $>3$ reports after the timing filter is armed (approve, or HID-allow). | Open MUX (≤100 ns target), update status. |
+| `0x3` | `COOLDOWN_BURST` | Key-down during the 2.0s post-enumeration cooldown (filter armed). Pre-approve hold is the pending row, not `0x3`. | Isolate, update status. |
 | `0x4` | `DESCRIPTOR_OVERFLOW` | Suspicious enum family (overflow / composite HID+MSC / multi-HID / re-enum storm). See `Pn_THREAT_DETAIL`. | Isolate port, update status. |
-| `0x5` | `CRC_TOKEN_FAULT` | Token CRC-5 or data CRC-16 failure. | Isolate on first fault (v1). |
-| `0x6` | `BIT_STUFF_ERROR` | Seven consecutive ones with no transition. | Reset port receiver, isolate. |
+| `0x5` | `CRC_TOKEN_FAULT` | Token CRC-5 or data CRC-16 failure (muted until speed lock). | Isolate on the fault (latch). |
+| `0x6` | `BIT_STUFF_ERROR` | Seven consecutive ones with no transition. | Code reserved. `usb_sie_rx` does not export a stuff-error strobe yet, so the sniffer does not latch `0x6`. |
 | `0x7` | `MANUAL_HOST_KILL` | User command via GUI. | Open MUX, cut eFuse. |
 
 ---

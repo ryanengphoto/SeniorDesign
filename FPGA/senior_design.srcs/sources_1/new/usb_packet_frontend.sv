@@ -2,18 +2,16 @@
 
 //////////////////////////////////////////////////////////////////////////////////
 // Module: usb_packet_frontend
-// Purpose: Project wrapper around TinyFPGA usb_fs_rx for the USB sniffer.
-//          - Single-clock early bring-up (clk_48m used for both RX domains)
-//          - Strips trailing CRC16 bytes from DATA packet payloads
-//          - Pulses bit_stuff_fault on pkt_end when RX saw seven consecutive 1s
-//          - Else pulses crc_fault on pkt_end when valid_packet is low
-//
-// Notes:   Sim / RTL bring-up. Do not drive board taps from TX.
+// Purpose: Soft-tap SIE wrapper: selectable FS/LS RX + CRC16 strip for DATA.
+//          crc_fault is suppressed until speed_valid (attach lock).
 //////////////////////////////////////////////////////////////////////////////////
 
 module usb_packet_frontend (
     input  logic       clk_48m,
     input  logic       rst,
+
+    input  logic       is_ls,
+    input  logic       speed_valid,
 
     input  logic       dp,
     input  logic       dm,
@@ -30,8 +28,7 @@ module usb_packet_frontend (
     output logic [7:0] data,
 
     output logic       crc_ok,
-    output logic       crc_fault,
-    output logic       bit_stuff_fault
+    output logic       crc_fault
 );
 
     logic        rx_bit_strobe;
@@ -44,52 +41,52 @@ module usb_packet_frontend (
     logic        rx_data_put;
     logic [7:0]  rx_data;
     logic        rx_valid_packet;
-    logic        rx_bitstuff_error;
 
-    usb_fs_rx u_rx (
-        .clk_48mhz     (clk_48m),
-        .clk           (clk_48m),
-        .reset         (rst),
-        .dp            (dp),
-        .dn            (dm),
-        .bit_strobe    (rx_bit_strobe),
-        .pkt_start     (rx_pkt_start),
-        .pkt_end       (rx_pkt_end),
-        .pid           (rx_pid),
-        .addr          (rx_addr),
-        .endp          (rx_endp),
-        .frame_num     (rx_frame_num),
-        .rx_data_put   (rx_data_put),
-        .rx_data       (rx_data),
-        .valid_packet  (rx_valid_packet),
-        .bitstuff_error(rx_bitstuff_error)
+    // Hold RX in reset until attach speed is locked.
+    wire rx_reset = rst | ~speed_valid;
+
+    usb_sie_rx u_rx (
+        .clk_48mhz   (clk_48m),
+        .clk         (clk_48m),
+        .reset       (rx_reset),
+        .is_ls       (is_ls),
+        .dp          (dp),
+        .dn          (dm),
+        .bit_strobe  (rx_bit_strobe),
+        .pkt_start   (rx_pkt_start),
+        .pkt_end     (rx_pkt_end),
+        .pid         (rx_pid),
+        .addr        (rx_addr),
+        .endp        (rx_endp),
+        .frame_num   (rx_frame_num),
+        .rx_data_put (rx_data_put),
+        .rx_data     (rx_data),
+        .valid_packet(rx_valid_packet)
     );
 
-    assign pkt_start = rx_pkt_start;
-    assign pkt_end   = rx_pkt_end;
+    assign pkt_start = rx_pkt_start & speed_valid;
+    assign pkt_end   = rx_pkt_end   & speed_valid;
     assign pid       = rx_pid;
     assign addr      = rx_addr;
     assign endp      = rx_endp;
     assign frame_num = rx_frame_num;
-    assign crc_ok    = rx_valid_packet;
+    assign crc_ok    = rx_valid_packet & speed_valid;
 
     // 2-deep skid: DATA PIDs append CRC16 on rx_data; emit only payload.
     logic [7:0] hold0, hold1;
     logic [1:0] fill;
 
     always_ff @(posedge clk_48m) begin
-        if (rst) begin
-            fill            <= 2'd0;
-            hold0           <= 8'h00;
-            hold1           <= 8'h00;
-            data_valid      <= 1'b0;
-            data            <= 8'h00;
-            crc_fault       <= 1'b0;
-            bit_stuff_fault <= 1'b0;
+        if (rst || !speed_valid) begin
+            fill       <= 2'd0;
+            hold0      <= 8'h00;
+            hold1      <= 8'h00;
+            data_valid <= 1'b0;
+            data       <= 8'h00;
+            crc_fault  <= 1'b0;
         end else begin
-            data_valid      <= 1'b0;
-            crc_fault       <= 1'b0;
-            bit_stuff_fault <= 1'b0;
+            data_valid <= 1'b0;
+            crc_fault  <= 1'b0;
 
             if (rx_pkt_start) begin
                 fill <= 2'd0;
@@ -115,12 +112,8 @@ module usb_packet_frontend (
             end
 
             if (rx_pkt_end) begin
-                // Drop residual CRC bytes (fill==2) or short residuals.
                 fill <= 2'd0;
-                // Prefer bit-stuff (0x6) over generic CRC/PID fail (0x5).
-                if (rx_bitstuff_error)
-                    bit_stuff_fault <= 1'b1;
-                else if (!rx_valid_packet)
+                if (!rx_valid_packet)
                     crc_fault <= 1'b1;
             end
         end
@@ -129,14 +122,13 @@ module usb_packet_frontend (
 `ifndef VERILATOR
     // synthesis translate_off
     usb_packet_frontend_sva u_fe_sva (
-        .clk            (clk_48m),
-        .rst            (rst),
-        .pkt_start      (pkt_start),
-        .pkt_end        (pkt_end),
-        .data_valid     (data_valid),
-        .crc_ok         (crc_ok),
-        .crc_fault      (crc_fault),
-        .bit_stuff_fault(bit_stuff_fault)
+        .clk       (clk_48m),
+        .rst       (rst),
+        .pkt_start (pkt_start),
+        .pkt_end   (pkt_end),
+        .data_valid(data_valid),
+        .crc_ok    (crc_ok),
+        .crc_fault (crc_fault)
     );
     // synthesis translate_on
 `endif

@@ -1,24 +1,20 @@
-# Run Flutter Windows desktop against a real COM port (Tier-2 CP2102 / future MCU).
-# Keeps the WSL/Linux path intact — use this on Windows instead of usbipd.
+# Run Flutter Windows desktop in serial mode.
+# COM port is optional — pick it live in the app header dropdown.
 #
 # Prerequisites (Windows host, not WSL):
 #   - Flutter for Windows + Visual Studio "Desktop development with C++"
-#   - Silicon Labs CP210x VCP drivers
-#   - Cross-wired pair: TX↔RX, GND↔GND; both plugged into the PC
-#   - pyserial for mcu_sim:  pip install pyserial
+#   - Silicon Labs CP210x VCP drivers (for CP2102 / Black Pill UART)
 #
 # Usage (from GUI/ in PowerShell):
-#   .\scripts\list_com_ports.ps1
-#   # Terminal A:
-#   python scripts\mcu_sim.py --port COM3 -i
-#   # Terminal B:
-#   .\scripts\run_windows_serial.ps1 -Port COM4
+#   .\scripts\run_windows_serial.ps1
+#   .\scripts\run_windows_serial.ps1 -Port COM3   # optional preselect
+#   make windows-serial
+#   make windows-serial PORT=COM3
 #
-# Mock (no serial):  .\scripts\run_windows_mock.ps1
+# Mock (no serial):  .\scripts\run_windows_mock.ps1  /  make windows-mock
 
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Port,
+    [string]$Port = "",
 
     [int]$Baud = 115200,
 
@@ -34,25 +30,36 @@ if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
     Write-Error "flutter not found on PATH. Install Flutter for Windows and reopen PowerShell."
 }
 
-# Normalize COM10+ for Win32 CreateFile (\\.\COMn).
+$defines = @(
+    "--dart-define=HUB_MODE=serial",
+    "--dart-define=SERIAL_BAUD=$Baud"
+)
+
 $serialPort = $Port.Trim()
-if ($serialPort -match '^(?i)COM(\d+)$') {
-    $n = [int]$Matches[1]
-    if ($n -ge 10) {
-        $serialPort = "\\.\COM$n"
-    } else {
-        $serialPort = "COM$n"
+if ($serialPort -ne "") {
+    # Normalize COM10+ for Win32 CreateFile (\\.\COMn).
+    if ($serialPort -match '^(?i)COM(\d+)$') {
+        $n = [int]$Matches[1]
+        if ($n -ge 10) {
+            $serialPort = "\\.\COM$n"
+        } else {
+            $serialPort = "COM$n"
+        }
     }
+    $defines += "--dart-define=SERIAL_PORT=$serialPort"
+    Write-Host "HUB_MODE=serial  SERIAL_PORT=$serialPort  SERIAL_BAUD=$Baud"
+} else {
+    Write-Host "HUB_MODE=serial  SERIAL_PORT=(pick in UI)  SERIAL_BAUD=$Baud"
 }
 
-Write-Host "HUB_MODE=serial  SERIAL_PORT=$serialPort  SERIAL_BAUD=$Baud"
-Write-Host "Dummy peer is mcu_sim on the other COM — not carrier PCB / STM32."
+Write-Host "Peer may be mcu_sim (dummy) OR Black Pill Firmware/ UART stub."
+Write-Host "Use the header COM dropdown to select/change ports without restarting."
 Write-Host ""
 
-Set-Location $App
-flutter pub get
-flutter run -d windows `
-    --$Mode `
-    --dart-define=HUB_MODE=serial `
-    --dart-define=SERIAL_PORT=$serialPort `
-    --dart-define=SERIAL_BAUD=$Baud
+Push-Location $App
+try {
+    flutter pub get
+    flutter run -d windows --$Mode @defines
+} finally {
+    Pop-Location
+}

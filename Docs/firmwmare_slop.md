@@ -22,19 +22,17 @@ The STM32 runs exclusively on the **out-of-band management plane**. It does not 
 
 ### Primary responsibilities
 * **Poll FPGA status:** SPI master → FPGA slave; refresh per-port status / threat / descriptor registers.
-* **Poll analog sensors:** I²C master to per-port INA219 (or equivalent) current/voltage monitors.
 * **Forward telemetry to GUI:** Stream structured frames over **UART** to the host (via onboard USB–UART bridge). Target end-to-end telemetry freshness **≤ 100 ms** ([`Docs/d_c_txt.md`](d_c_txt.md)).
 * **Accept operator commands:** Decode host commands (JSON) and translate to SPI writes (manual kill, clear fault, re-enable, policy).
 
 ### Baseline architecture (from `d_c_txt.md`)
 
-The firmware follows a **simple polling loop**: continually refresh FPGA register and sensor readings and forward them to the GUI over UART. RTOS threading is not required for the baseline management plane (only four ports + a handful of sensors).
+The firmware follows a **simple polling loop**: continually refresh FPGA register readings and forward them to the GUI over UART. RTOS threading is not required for the baseline management plane (only four ports). Power sensors (INA219) have been dropped from the hardware scope.
 
 ```
-init clocks, SPI, I2C, UART
+init clocks, SPI, UART
 loop forever:
   read FPGA status block over SPI
-  read INA219 sensors over I2C
   merge into port state model
   emit newline-delimited JSON telemetry on UART
   parse any pending host commands → SPI writes
@@ -71,9 +69,9 @@ Baseline is one non-blocking super-loop. Logical modules (files) below may be se
 * Overcurrent vs negotiated threshold → alert in telemetry and optional FPGA kill request.
 
 ### 3.3. Port state (`policy_engine.c`)
-* Per-port states on the **host UART JSON** (GUI contract): `DISCONNECTED`, `AUTHORIZED`, `QUARANTINED`, `MANUAL_BLOCKED`.
-  FPGA `Pn_STATUS` still has Attached/Configured for SPI-side logic; those flags are **not** sent as separate UART fields / an `ENUMERATING` state.
-* Map FPGA threat codes 0–7 ([`Docs/fabric_slop.md`](fabric_slop.md) §6) into those host states.
+* Per-port states on the **host UART JSON** (GUI contract): `DISCONNECTED`, `AUTHORIZED`, `QUARANTINED`, `MANUAL_BLOCKED`, `PENDING_HID_CONFIRM`.
+  FPGA `Pn_STATUS` still has Attached/Configured/HID-pending for SPI-side logic; Attached/Configured are **not** sent as separate UART fields.
+* Map FPGA threat codes 0–7 ([`Docs/fabric_slop.md`](fabric_slop.md) §6) into those host states. HID-after-confirm pending (`Pn_STATUS[4]`) → `PENDING_HID_CONFIRM` (threat often `0`); host `confirm_hid` → SPI `APPROVE_HID`.
 * Whitelist / challenge / staging power are **advanced**; stub clearly if unimplemented.
 
 ### 3.4. Host link (`telemetry_proto.c`)
@@ -95,8 +93,6 @@ The STM32 exchanges human-readable, newline-delimited JSON with the host Python/
       "port": 0,
       "state": "AUTHORIZED",
       "threat_code": 0,
-      "vbus_mv": 5020,
-      "current_ma": 42,
       "vid": "0x0781",
       "pid": "0x5583",
       "dev_class": "0x00",
@@ -106,8 +102,6 @@ The STM32 exchanges human-readable, newline-delimited JSON with the host Python/
       "port": 1,
       "state": "QUARANTINED",
       "threat_code": 1,
-      "vbus_mv": 0,
-      "current_ma": 0,
       "vid": "0x046D",
       "pid": "0xC31C",
       "dev_class": "0x00",
@@ -121,10 +115,10 @@ Threat codes and register fields must match [`Docs/fabric_slop.md`](fabric_slop.
 
 ### Inbound commands (Host → MCU)
 Minimum set (names may match GUI protocol enums):
-* Manual isolate / re-enable port
-* Clear fault latch on FPGA
-* Soft policy mode change (`Pn_CONTROL[2:0]`: `0` HID-allowed, `1` storage-only)
-* **Approve HID** (`Pn_CONTROL[5]`): releases HID-hold quarantine and sets FPGA `approved` sticky (required before keystroke filter arms)
+* Manual isolate / re-enable port (`isolate_port` / `restore_port`)
+* Clear fault latch on FPGA (`clear_fault`) — does **not** approve pending HID
+* Confirm HID keyboard (`confirm_hid`) → SPI `Pn_CONTROL[5]` approve pulse (required before the keystroke filter arms on HID-confirm policy)
+* Soft policy mode change (SPI `Pn_CONTROL[2:0]`: `0` storage-only, `1` HID-after-confirm, `2` HID allow)
 
 Exact JSON schemas live with the GUI protocol module; update both sides together.
 
@@ -135,4 +129,4 @@ Exact JSON schemas live with the GUI protocol module; update both sides together
 1. Read this file, [`Docs/d_c_txt.md`](d_c_txt.md), and [`Docs/fabric_slop.md`](fabric_slop.md) before changing protocol or SPI usage.
 2. Prefer the **polling loop** until measurements show the ≤ 100 ms telemetry bound cannot be met.
 3. Keep magic numbers (baud, poll rate, I²C addresses, threat codes) in shared config / headers aligned with board and fabric docs.
-4. Sources live in [`Firmware/`](../Firmware/) (PlatformIO, Black Pill). Spec here remains the behavioral SoT; keep `Firmware/include/protocol.h` and `GUI/app/lib/protocol.dart` aligned. Current tree is a UART stub (mock telemetry) until SPI/I²C land.
+4. Sources live in [`Firmware/`](../Firmware/) (PlatformIO, Black Pill). Spec here remains the behavioral SoT; keep `Firmware/include/protocol.h` and `GUI/app/lib/protocol.dart` aligned. Default env has SPI bring-up (`fpga_bridge`) for Cmod Pmod JA; `vbus`/`current` and non-port0 paths may still be mock — see `Firmware/README.md`.

@@ -11,6 +11,9 @@
 //   register addresses, policy/approve bits, and threat classification codes.
 //   Values must stay aligned with Docs/fabric_slop.md (and GUI protocol
 //   when present).
+//
+// Policy numbers are the main contract:
+//   0 storage-only, 1 HID-confirm, 2 HID-allow.
 //////////////////////////////////////////////////////////////////////////////////
 
 // -----------------------------------------------------------------------------
@@ -35,22 +38,20 @@
 `define HID_QUARANTINE_CYCLES     32'd96_000_000   // 2.0 s @ 48 MHz
 `define HID_BURST_KEY_THRESHOLD   3                // >3 sub-interval key-downs
 
-// Rapid bus-reset / re-enumeration storm
+// Rapid disconnect / re-enumeration storm (clear_telemetry pulses)
 `define REENUM_WINDOW_CYCLES      32'd4_800_000    // 100 ms @ 48 MHz
-`define REENUM_STORM_THRESHOLD    3                // >=3 resets in window
+`define REENUM_STORM_THRESHOLD    3                // >=3 clears in window
 
 // -----------------------------------------------------------------------------
-// Policy modes (Pn_CONTROL[2:0])
+// Pn_CONTROL bits (Docs/fabric_slop.md §5)
 // -----------------------------------------------------------------------------
-`define POLICY_HID_ALLOWED        3'h0
-`define POLICY_STORAGE_ONLY       3'h1
-
-// Pn_CONTROL bit fields
-`define PCTL_POLICY_LO            0
-`define PCTL_POLICY_HI            2
-`define PCTL_APPROVE_BIT          5
-`define PCTL_CLEAR_FAULT_BIT      6
-`define PCTL_MANUAL_KILL_BIT      7
+`define CTRL_POLICY_STORAGE_ONLY  3'd0  // HID → sticky UNAUTHORIZED_HID (0x1)
+`define CTRL_POLICY_HID_CONFIRM   3'd1  // HID → pending until APPROVE_HID
+`define CTRL_POLICY_HID_ALLOW     3'd2  // HID → no auto hold (bench/cov)
+`define CTRL_MANUAL_KILL_BIT      7
+`define CTRL_CLEAR_FAULT_BIT      6
+`define CTRL_APPROVE_HID_BIT      5     // pulse: release HID-confirm hold
+// [2:0] = policy mode
 
 // -----------------------------------------------------------------------------
 // SPI register map (7-bit addresses; see Docs/fabric_slop.md section 5)
@@ -75,10 +76,10 @@
 `define THREAT_NO_FAULT             4'h0
 `define THREAT_UNAUTHORIZED_HID     4'h1
 `define THREAT_KEYSTROKE_BURST      4'h2
-`define THREAT_COOLDOWN_BURST       4'h3  // HID hold / post-approve cooldown
+`define THREAT_COOLDOWN_BURST       4'h3  // post-approve / post-enum cooldown
 `define THREAT_DESCRIPTOR_OVERFLOW  4'h4  // umbrella suspicious-enum family
 `define THREAT_CRC_TOKEN_FAULT      4'h5
-`define THREAT_BIT_STUFF_ERROR      4'h6
+`define THREAT_BIT_STUFF_ERROR      4'h6  // defined; SIE does not export it yet
 `define THREAT_MANUAL_HOST_KILL     4'h7
 
 // Pn_THREAT_DETAIL nibble (when threat_code == 0x4)
@@ -97,11 +98,16 @@
 // Midterm UART port-status byte (Fig. 19 example 0xC1)
 // Text: attached + isolated high, plus a threat-present flag.
 // Exact figure callouts are image-only; bits below reproduce 0xC1 when all set.
+// SPI Pn_STATUS pack also exposes HID pending on bit [4].
 // -----------------------------------------------------------------------------
 `define PORT_STATUS_ATTACHED_BIT       0
-`define PORT_STATUS_PENDING_BIT        1  // HID awaiting operator approve
+`define PORT_STATUS_HID_PENDING_BIT    4
 `define PORT_STATUS_ISOLATED_BIT       6
 `define PORT_STATUS_THREAT_PRESENT_BIT 7
 `define PORT_STATUS_EXAMPLE_C1         8'hC1
+`define SPI_STATUS_HID_PENDING_BIT     4
+// Older victor TBs named the pending flag PORT_STATUS_PENDING_BIT (then bit 1).
+// It now aliases the main HID-pending bit.
+`define PORT_STATUS_PENDING_BIT        `PORT_STATUS_HID_PENDING_BIT
 
 `endif // DEFINES_SVH

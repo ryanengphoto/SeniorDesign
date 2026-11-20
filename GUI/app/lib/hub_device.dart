@@ -20,6 +20,15 @@ abstract class HubDevice {
   /// When true, the UI may offer Retry / the device auto-reconnects.
   bool get supportsReconnect => false;
 
+  /// When true, the UI may offer a live serial-port picker.
+  bool get supportsPortSelect => false;
+
+  /// When true, the UI may offer a live baud-rate picker.
+  bool get supportsBaudSelect => false;
+
+  /// Current UART baud (meaningful for serial; default for mock).
+  int get baudRate => 115200;
+
   /// When true, [HubService] polls [getTelemetry] at 10 Hz.
   bool get isPolled;
 
@@ -30,6 +39,15 @@ abstract class HubDevice {
 
   /// Close and reopen the link (serial). No-op for mock.
   void reconnect() {}
+
+  /// Available UART device paths (COM / tty). Empty for mock / web.
+  List<String> listSerialPorts() => const [];
+
+  /// Switch serial device and reopen (serial). No-op for mock.
+  void setSerialPort(String portPath) {}
+
+  /// Change UART baud and reopen (serial). No-op for mock.
+  void setBaudRate(int baud) {}
 
   void dispose();
 
@@ -49,4 +67,7 @@ abstract class HubDevice {
   (PortState, int, String) restorePort(int portId);
 
   (PortState, int, String)? clearFault(int portId);
+
+  /// Operator confirms HID keyboard/mouse on a pending-confirm port.
+  (PortState, int, String)? confirmHid(int portId);
 }

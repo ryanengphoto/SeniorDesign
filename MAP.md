@@ -3,6 +3,7 @@
 | Path | What lives here |
 | --- | --- |
 | `README.md` | Project overview |
+| `wiring.md` | Bench jumper cheat sheet (UART + SPI) |
 | `AGENTS.md` | Instructions for coding agents |
 | `MAP.md` | This file — where things are |
 | `.gitignore` | Files git should ignore |

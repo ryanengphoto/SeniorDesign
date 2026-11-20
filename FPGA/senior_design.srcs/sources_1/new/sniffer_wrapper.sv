@@ -4,15 +4,12 @@
 // Module Name:   sniffer_wrapper
 // Description:
 //   Instantiates NUM_PORTS identical sniffer_block instances and exposes
-//   per-port tap / kill / threat / enum status / packet debug buses.
-//   Default policy: HID-allowed (POLICY_STORAGE_ONLY=0).
+//   per-port tap / kill / threat / detail / enum status / packet debug buses.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
 
-module sniffer_wrapper #(
-    parameter bit POLICY_STORAGE_ONLY = 1'b0
-) (
+module sniffer_wrapper (
     input  logic       clk_48m,
     input  logic       rst,
 
@@ -21,8 +18,8 @@ module sniffer_wrapper #(
 
     input  logic [`NUM_PORTS-1:0] clear_fault,
     input  logic [`NUM_PORTS-1:0] manual_kill,
-    input  logic [`NUM_PORTS-1:0] approve,
     input  logic [2:0]            policy_mode [`NUM_PORTS-1:0],
+    input  logic [`NUM_PORTS-1:0] approve_hid,
 
     output logic [`NUM_PORTS-1:0] kill,
     output logic [3:0]            threat_code   [`NUM_PORTS-1:0],
@@ -36,6 +33,7 @@ module sniffer_wrapper #(
     output logic        device_desc_valid [`NUM_PORTS-1:0],
     output logic        intf_class_valid  [`NUM_PORTS-1:0],
 
+    // Per-port packet debug (E2E scoreboard / bring-up)
     output logic       pkt_start  [`NUM_PORTS-1:0],
     output logic       pkt_end    [`NUM_PORTS-1:0],
     output logic [3:0] pid        [`NUM_PORTS-1:0],
@@ -50,17 +48,15 @@ module sniffer_wrapper #(
     genvar i;
     generate
         for (i = 0; i < `NUM_PORTS; i = i + 1) begin : g_port
-            sniffer_block #(
-                .POLICY_STORAGE_ONLY(POLICY_STORAGE_ONLY)
-            ) u_sniffer (
+            sniffer_block u_sniffer (
                 .clk_48m           (clk_48m),
                 .rst               (rst),
                 .dp                (dp[i]),
                 .dm                (dm[i]),
                 .clear_fault       (clear_fault[i]),
                 .manual_kill       (manual_kill[i]),
-                .approve           (approve[i]),
                 .policy_mode       (policy_mode[i]),
+                .approve_hid       (approve_hid[i]),
                 .pkt_start         (pkt_start[i]),
                 .pkt_end           (pkt_end[i]),
                 .pid               (pid[i]),

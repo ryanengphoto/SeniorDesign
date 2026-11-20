@@ -3,11 +3,23 @@
 # Prototype on Linux/web; Windows .exe is a release packaging target (build on Windows).
 
 APP_DIR := app
-FLUTTER ?= $(HOME)/flutter/bin/flutter
 WEB_PORT ?= 7357
 WEB_HOST ?= 127.0.0.1
 LINUX_RELEASE_BIN := $(APP_DIR)/build/linux/x64/release/bundle/hub_console
 LINUX_DEBUG_BIN := $(APP_DIR)/build/linux/x64/debug/bundle/hub_console
+
+# Flutter SDK: Linux/WSL default ~/flutter; Windows uses %USERPROFILE%\flutter or PATH.
+ifeq ($(OS),Windows_NT)
+  USER_FLUTTER := $(USERPROFILE)/flutter/bin/flutter.bat
+  ifneq ($(wildcard $(USER_FLUTTER)),)
+    FLUTTER ?= $(USER_FLUTTER)
+  else
+    FLUTTER ?= flutter
+  endif
+else
+  FLUTTER ?= $(HOME)/flutter/bin/flutter
+  export PATH := $(HOME)/flutter/bin:$(HOME)/.local/bin:$(PATH)
+endif
 
 # Tier-1 serial bring-up (PTY + mcu_sim — NOT real PCB hardware)
 SERIAL_PORT ?= /tmp/hub_host
@@ -18,11 +30,14 @@ PYTHON ?= python3
 SOCAT_PID_FILE := /tmp/hub_socat.pid
 MCU_SIM_PID_FILE := /tmp/hub_mcu_sim.pid
 
-export PATH := $(HOME)/flutter/bin:$(HOME)/.local/bin:$(PATH)
+# Optional COM for windows-serial (empty = pick in UI). Do not reuse SERIAL_PORT
+# (defaults to /tmp/hub_host for the Linux/PTY path).
+PORT ?=
 
 .PHONY: help dev linux run-linux web windows install analyze test test-serial \
 	build build-web build-linux build-windows stop doctor \
-	linux-serial sim-pty sim-mcu sim-mcu-i ensure-pty stop-sim tier1-check
+	linux-serial windows-serial windows-mock \
+	sim-pty sim-mcu sim-mcu-i ensure-pty stop-sim tier1-check
 
 .DEFAULT_GOAL := help
 
@@ -43,19 +58,23 @@ help:
 	@echo "  make tier1-check    Automated PTY protocol check (socat + mcu_sim)"
 	@echo "  make stop-sim       Stop background socat / mcu_sim from make sim-pty"
 	@echo ""
-	@echo "  Tier-2 serial — Windows native path (no usbipd; run in PowerShell):"
+	@echo "  Tier-2 serial — Windows native path (no usbipd; PowerShell or Make):"
+	@echo "  make windows-serial            Flutter Windows serial (pick COM in UI)"
+	@echo "  make windows-serial PORT=COM4  Optional COM preselect"
+	@echo "  make windows-mock              Flutter Windows mock (no COM)"
 	@echo "  .\\scripts\\list_com_ports.ps1"
 	@echo "  python scripts\\mcu_sim.py --port COM3 -i"
-	@echo "  .\\scripts\\run_windows_serial.ps1 -Port COM4"
+	@echo "  .\\scripts\\run_windows_serial.ps1 [-Port COM4]"
 	@echo "  .\\scripts\\run_windows_mock.ps1"
 	@echo ""
 	@echo "  Release packages:"
 	@echo "  make build-web      Web → app/build/web/  (portable in any browser)"
 	@echo "  make build-linux    Linux release → app/build/linux/.../release/bundle/"
 	@echo "  make build-windows  Windows .exe  → app/build/windows/.../Release/"
-	@echo "                      (must run on Windows with Visual Studio + Flutter)"
+	@echo "                      (Windows host: runs scripts/build_windows.ps1)"
 	@echo "  make build          Alias for build-web"
 	@echo "  make windows        Alias for build-windows"
+	@echo "  .\\scripts\\build_windows.ps1   Same Windows release build (PowerShell)"
 	@echo ""
 	@echo "  Quality:"
 	@echo "  make install        flutter pub get"
@@ -80,6 +99,13 @@ analyze: install
 # Bundle lib path for flutter_libserialport in `flutter test` (PTY uses dart:io fallback too).
 SERIAL_LIB_DIR := $(APP_DIR)/build/linux/x64/debug/bundle/lib
 
+ifeq ($(OS),Windows_NT)
+test: install
+	cd $(APP_DIR) && $(FLUTTER) test
+
+test-serial: install
+	cd $(APP_DIR) && $(FLUTTER) test test/serial_tier1_test.dart
+else
 test: install
 	@if [ -f "$(SERIAL_LIB_DIR)/libserialport.so" ]; then \
 		cd $(APP_DIR) && LD_LIBRARY_PATH="$(CURDIR)/$(SERIAL_LIB_DIR):$${LD_LIBRARY_PATH:-}" $(FLUTTER) test; \
@@ -95,6 +121,7 @@ test-serial: install
 	fi
 	cd $(APP_DIR) && LD_LIBRARY_PATH="$(CURDIR)/$(SERIAL_LIB_DIR):$${LD_LIBRARY_PATH:-}" \
 		$(FLUTTER) test test/serial_tier1_test.dart
+endif
 
 # One-command mock preview: Flutter web-server + open browser when possible.
 dev web: install
@@ -203,30 +230,48 @@ build-linux: install
 	cd $(APP_DIR) && $(FLUTTER) build linux --release
 	@echo "Linux bundle: $(APP_DIR)/build/linux/x64/release/bundle/"
 
-# Windows cannot be cross-compiled from Linux/WSL. Fail fast with instructions.
-windows build-windows: install
+# Windows cannot be cross-compiled from Linux/WSL. Prefer the PowerShell script on NT.
+windows build-windows:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+else
 	@uname_s=$$(uname -s 2>/dev/null || echo unknown); \
-	case "$$uname_s" in \
-	  MINGW*|MSYS*|CYGWIN*|Windows_NT) \
-	    cd $(APP_DIR) && $(FLUTTER) build windows --release; \
-	    echo "Windows Release folder: $(APP_DIR)/build/windows/x64/runner/Release/"; \
-	    echo "Zip that whole folder for a portable demo (exe + DLLs)."; \
-	    ;; \
-	  *) \
-	    printf '%s\n' \
-	      "ERROR: Windows .exe must be built on a Windows host (not $$uname_s / WSL)." \
-	      "" \
-	      "On Windows (PowerShell), with Flutter + Visual Studio Desktop C++ workload:" \
-	      "  cd GUI/app" \
-	      "  flutter pub get" \
-	      "  flutter build windows --release" \
-	      "" \
-	      "Or from GUI/:  .\\scripts\\build_windows.ps1" \
-	      "Output: app/build/windows/x64/runner/Release/  (zip the whole folder)" \
-	      >&2; \
-	    exit 1; \
-	    ;; \
-	esac
+	printf '%s\n' \
+	  "ERROR: Windows .exe must be built on a Windows host (not $$uname_s / WSL)." \
+	  "" \
+	  "On Windows (PowerShell), with Flutter + Visual Studio Desktop C++ workload:" \
+	  "  cd GUI" \
+	  "  .\\scripts\\build_windows.ps1" \
+	  "" \
+	  "Output: app/build/windows/x64/runner/Release/  (zip the whole folder)" \
+	  >&2; \
+	exit 1
+endif
+
+# Run (not build) on a Windows host. Scripts restore the caller's cwd on exit.
+windows-serial:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_windows_serial.ps1 $(if $(PORT),-Port $(PORT)) -Baud $(SERIAL_BAUD)
+else
+	@uname_s=$$(uname -s 2>/dev/null || echo unknown); \
+	printf '%s\n' \
+	  "ERROR: make windows-serial requires a Windows host (not $$uname_s / WSL)." \
+	  "  make -C GUI windows-serial" \
+	  "  make -C GUI windows-serial PORT=COM4" \
+	  >&2; \
+	exit 1
+endif
+
+windows-mock:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_windows_mock.ps1
+else
+	@uname_s=$$(uname -s 2>/dev/null || echo unknown); \
+	printf '%s\n' \
+	  "ERROR: make windows-mock requires a Windows host (not $$uname_s / WSL)." \
+	  >&2; \
+	exit 1
+endif
 
 stop:
 	-fuser -k $(WEB_PORT)/tcp 2>/dev/null

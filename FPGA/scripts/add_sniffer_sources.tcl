@@ -10,14 +10,14 @@ set constr     [file join $proj_dir senior_design.srcs constrs_1 new]
 
 open_project $proj_file
 
+# Legacy TinyFPGA usb_fs_rx / strobe / usb_reset_det live in FPGA/references/ (not sources_1).
 foreach f [list \
-  [file join $src strobe.v] \
-  [file join $src usb_fs_rx.v] \
-  [file join $src usb_reset_det.v] \
+  [file join $src usb_sie_rx.sv] \
   [file join $src usb_packet_frontend.sv] \
   [file join $src isolation_controller.sv] \
   [file join $src enumeration_analysis.sv] \
   [file join $src hid_timing_filter.sv] \
+  [file join $src usb_line_attach.sv] \
   [file join $src sniffer_block.sv] \
   [file join $src sniffer_wrapper.sv] \
   [file join $src register_file.sv] \
@@ -44,10 +44,13 @@ foreach f [list \
 
 foreach f [list \
   [file join $sim tb_sniffer.sv] \
+  [file join $sim tb_sie_ls.sv] \
   [file join $sim tb_enumeration_analysis.sv] \
+  [file join $sim tb_usb_line_attach.sv] \
   [file join $sim tb_kill_e2e.sv] \
   [file join $sim tb_enum_e2e.sv] \
   [file join $sim tb_demo_threat.sv] \
+  [file join $sim tb_hid_confirm.sv] \
   [file join $sim tb_spi_enum_e2e.sv] \
   [file join $sim tb_main_selfstim.sv] \
   [file join $sim tb_spi_manual_kill.sv] \

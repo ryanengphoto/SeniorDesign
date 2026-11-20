@@ -89,11 +89,10 @@ run_one() {
 }
 
 PHY=(
-  "$SRC/usb_reset_det.v"
   "$SRC/usb_packet_frontend.sv"
-  "$SRC/usb_fs_rx.v"
+  "$SRC/usb_sie_rx.sv"
+  "$SRC/usb_line_attach.sv"
   "$SRC/usb_fs_tx.v"
-  "$SRC/strobe.v"
 )
 SNIFF=(
   "$SRC/sniffer_block.sv"
@@ -112,7 +111,10 @@ run_one tb_cov_isolation \
 run_one tb_cov_sniffer \
   "$SIM/tb_cov_sniffer.sv" \
   "${SNIFF[@]}" \
-  "${PHY[@]}"
+  "$SRC/usb_packet_frontend.sv" \
+  "$SRC/usb_sie_rx.sv" \
+  "$SRC/usb_line_attach.sv" \
+  "$SRC/usb_fs_tx.v"
 
 # --- feature TBs merged for module coverage (same DUT sources) ---
 run_one tb_hid_timing \
@@ -126,7 +128,10 @@ run_one tb_suspicious_enum \
 run_one tb_bit_stuff \
   "$SIM/tb_bit_stuff.sv" \
   "${SNIFF[@]}" \
-  "${PHY[@]}"
+  "$SRC/usb_packet_frontend.sv" \
+  "$SRC/usb_sie_rx.sv" \
+  "$SRC/usb_line_attach.sv" \
+  "$SRC/usb_fs_tx.v"
 
 echo ""
 echo "==== merge + annotate ===="

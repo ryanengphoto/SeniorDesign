@@ -18,7 +18,7 @@ module tb_suspicious_enum;
     logic [3:0]  pid, endp;
     logic [6:0]  addr;
     logic [7:0]  data;
-    logic        bus_reset;
+    logic        clear_telemetry;
 
     logic [15:0] vid, pid_dev;
     logic [7:0]  dev_class, intf_class, intf_subclass, intf_protocol;
@@ -34,10 +34,11 @@ module tb_suspicious_enum;
         .REENUM_STORM_THRESH_P (3)
     ) dut (
         .clk(clk), .rst(rst),
+        .line_attached(1'b1),
+        .clear_telemetry(clear_telemetry),
         .pkt_start(pkt_start), .pkt_end(pkt_end),
         .pid(pid), .addr(addr), .endp(endp),
         .data_valid(data_valid), .data(data), .crc_ok(crc_ok),
-        .bus_reset(bus_reset),
         .vid(vid), .pid_dev(pid_dev),
         .dev_class(dev_class), .intf_class(intf_class),
         .intf_subclass(intf_subclass), .intf_protocol(intf_protocol),
@@ -107,7 +108,7 @@ module tb_suspicious_enum;
         errors = 0;
         saw_overflow = 0; saw_composite = 0; saw_multi = 0; saw_storm = 0;
         pkt_start=0; pkt_end=0; data_valid=0; crc_ok=1;
-        pid=0; addr=0; endp=0; data=0; bus_reset=0;
+        pid=0; addr=0; endp=0; data=0; clear_telemetry=0;
         $display("tb_suspicious_enum: overflow/composite/multi/storm");
 
         repeat (8) @(posedge clk);
@@ -170,9 +171,9 @@ module tb_suspicious_enum;
         saw_storm = 0; repeat (4) tick;
 
         // ---- Re-enum storm: 3 rising edges within window ----
-        bus_reset = 1'b1; tick; bus_reset = 1'b0; repeat (5) tick;
-        bus_reset = 1'b1; tick; bus_reset = 1'b0; repeat (5) tick;
-        bus_reset = 1'b1; tick; bus_reset = 1'b0; repeat (5) tick;
+        clear_telemetry = 1'b1; tick; clear_telemetry = 1'b0; repeat (5) tick;
+        clear_telemetry = 1'b1; tick; clear_telemetry = 1'b0; repeat (5) tick;
+        clear_telemetry = 1'b1; tick; clear_telemetry = 1'b0; repeat (5) tick;
         if (saw_storm < 1) begin
             $error("expected reenum_storm_pulse"); errors++;
         end else $display("re-enum storm OK");
@@ -181,7 +182,7 @@ module tb_suspicious_enum;
         begin
             int storm_before;
             storm_before = saw_storm;
-            bus_reset = 1'b1; tick; bus_reset = 1'b0; repeat (5) tick;
+            clear_telemetry = 1'b1; tick; clear_telemetry = 1'b0; repeat (5) tick;
             if (saw_storm != storm_before) begin
                 $error("storm must latch (no re-pulse)"); errors++;
             end
@@ -250,10 +251,10 @@ module tb_suspicious_enum;
         // Window expiry: one reset, then wait out window → count clears
         rst = 1'b1; repeat (4) @(posedge clk); rst = 1'b0;
         saw_storm = 0; repeat (4) tick;
-        bus_reset = 1'b1; tick; bus_reset = 1'b0;
+        clear_telemetry = 1'b1; tick; clear_telemetry = 1'b0;
         repeat (220) tick; // REENUM_WINDOW_CYCLES_P=200
-        bus_reset = 1'b1; tick; bus_reset = 1'b0; repeat (5) tick;
-        bus_reset = 1'b1; tick; bus_reset = 1'b0; repeat (5) tick;
+        clear_telemetry = 1'b1; tick; clear_telemetry = 1'b0; repeat (5) tick;
+        clear_telemetry = 1'b1; tick; clear_telemetry = 1'b0; repeat (5) tick;
         // Only 2 in new window — no storm
         if (saw_storm != 0) begin
             $error("storm must not fire after window expiry"); errors++;

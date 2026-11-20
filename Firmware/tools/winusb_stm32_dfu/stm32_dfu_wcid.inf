@@ -1,0 +1,34 @@
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49f0-BC3D-A4FF138516D6}
+Provider    = %ManufacturerName%
+DriverVer   = 11/12/2026,1.0.0.1
+PnpLockdown = 1
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64,NTarm64
+
+[Standard.NTamd64]
+%DeviceName% = USB_Install, USB\VID_0483&PID_DF11
+
+[Standard.NTarm64]
+%DeviceName% = USB_Install, USB\VID_0483&PID_DF11
+
+[USB_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[USB_Install.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg = Dev_AddReg
+
+[Dev_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{f72fe0d4-cbcb-407d-8814-9ed673d0dd6b}"
+
+[Strings]
+ManufacturerName = "Community"
+DeviceName = "STM32 BOOTLOADER (WinUSB)"

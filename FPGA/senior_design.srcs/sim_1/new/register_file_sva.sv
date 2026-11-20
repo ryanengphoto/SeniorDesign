@@ -2,7 +2,10 @@
 
 //////////////////////////////////////////////////////////////////////////////////
 // Module: register_file_sva
-// Purpose: Per-port CONTROL → clear/manual/approve; RO mirror of sniffer telemetry.
+// Purpose: Per-port CONTROL → clear/manual/approve_hid; RO mirror of sniffer
+//          telemetry including Pn_THREAT_DETAIL.
+//          clear_fault / approve_hid pulse the cycle after reg_we (both clocked).
+//          Approve does not itself pulse clear_fault.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -25,7 +28,7 @@ module register_file_sva (
     input logic [7:0]             intf_class    [`NUM_PORTS-1:0],
     input logic [`NUM_PORTS-1:0]  clear_fault,
     input logic [`NUM_PORTS-1:0]  manual_kill,
-    input logic [`NUM_PORTS-1:0]  approve,
+    input logic [`NUM_PORTS-1:0]  approve_hid,
     input logic [7:0]             p_control [0:`NUM_PORTS-1]
 );
 
@@ -48,7 +51,8 @@ module register_file_sva (
         pack_spi_status = 8'h00;
         pack_spi_status[7]   = kill_i;
         pack_spi_status[6]   = mid_status[`PORT_STATUS_ATTACHED_BIT];
-        pack_spi_status[5]   = mid_status[`PORT_STATUS_PENDING_BIT];
+        pack_spi_status[`SPI_STATUS_HID_PENDING_BIT] =
+            mid_status[`PORT_STATUS_HID_PENDING_BIT];
         pack_spi_status[3:0] = threat_i;
     endfunction
 
@@ -61,25 +65,28 @@ module register_file_sva (
         end else begin
             if (sample_valid) begin
                 for (i = 0; i < `NUM_PORTS; i = i + 1) begin
-                    if (manual_kill[i] !== p_control[i][`PCTL_MANUAL_KILL_BIT])
+                    if (manual_kill[i] !== p_control[i][`CTRL_MANUAL_KILL_BIT])
                         $error("register_file SVA: manual_kill[%0d] != CONTROL[7]", i);
                 end
 
+                // clear_fault is registered from prior-cycle CONTROL[6] write
                 if (we_d && w_is_port_d && (waddr_d[3:0] == 4'h0) &&
-                    (wdata_d[`PCTL_CLEAR_FAULT_BIT] || wdata_d[`PCTL_APPROVE_BIT])) begin
+                    wdata_d[`CTRL_CLEAR_FAULT_BIT]) begin
                     if (!clear_fault[wp_d])
-                        $error("register_file SVA: CONTROL clear/approve did not pulse clear_fault[%0d]",
+                        $error("register_file SVA: CONTROL[6] did not pulse clear_fault[%0d]",
                                wp_d);
-                    if (wdata_d[`PCTL_APPROVE_BIT] && !approve[wp_d])
-                        $error("register_file SVA: CONTROL[5] did not pulse approve[%0d]", wp_d);
-                    for (i = 0; i < `NUM_PORTS; i = i + 1) begin
-                        if (i != wp_d && clear_fault[i])
-                            $error("register_file SVA: clear spilled to port%0d", i);
-                    end
                 end else if (clear_fault != {`NUM_PORTS{1'b0}}) begin
-                    $error("register_file SVA: clear_fault without prior CONTROL[6/5] write");
-                end else if (approve != {`NUM_PORTS{1'b0}}) begin
-                    $error("register_file SVA: approve without prior CONTROL[5] write");
+                    $error("register_file SVA: clear_fault without prior CONTROL[6] write");
+                end
+
+                // approve_hid pulse from CONTROL[5]
+                if (we_d && w_is_port_d && (waddr_d[3:0] == 4'h0) &&
+                    wdata_d[`CTRL_APPROVE_HID_BIT]) begin
+                    if (!approve_hid[wp_d])
+                        $error("register_file SVA: CONTROL[5] did not pulse approve_hid[%0d]",
+                               wp_d);
+                end else if (approve_hid != {`NUM_PORTS{1'b0}}) begin
+                    $error("register_file SVA: approve_hid without prior CONTROL[5] write");
                 end
 
                 if (reg_raddr == `ADDR_SYS_STATUS) begin

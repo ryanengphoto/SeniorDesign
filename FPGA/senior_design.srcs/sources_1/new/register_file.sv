@@ -4,8 +4,12 @@
 // Module: register_file
 // Purpose: MCU-visible status/control map (Docs/fabric_slop.md §5).
 //          Sniffer state is mirrored every cycle.
-//          Pn_CONTROL: [7] manual_kill, [6] clear_fault pulse,
-//                      [5] approve pulse (+clear), [2:0] policy mode.
+//          Pn_CONTROL[7] manual_kill (level)
+//          Pn_CONTROL[6] clear_fault (pulse)
+//          Pn_CONTROL[5] approve_hid (pulse)
+//          Pn_CONTROL[2:0] policy mode
+//          Pn_THREAT_DETAIL at +0x08 (nibble; meaningful when threat is 0x4)
+// Notes:   Bring-up uses one clock (same as sniffers). 48↔100 CDC later.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -31,8 +35,8 @@ module register_file (
 
     output logic [`NUM_PORTS-1:0] clear_fault,
     output logic [`NUM_PORTS-1:0] manual_kill,
-    output logic [`NUM_PORTS-1:0] approve,
-    output logic [2:0]            policy_mode [`NUM_PORTS-1:0]
+    output logic [2:0]            policy_mode [`NUM_PORTS-1:0],
+    output logic [`NUM_PORTS-1:0] approve_hid
 );
 
     logic [7:0] sys_control;
@@ -51,7 +55,9 @@ module register_file (
         pack_spi_status = 8'h00;
         pack_spi_status[7]   = kill_i;
         pack_spi_status[6]   = mid_status[`PORT_STATUS_ATTACHED_BIT];
-        pack_spi_status[5]   = mid_status[`PORT_STATUS_PENDING_BIT];
+        pack_spi_status[5]   = 1'b0; // configured (unused)
+        pack_spi_status[`SPI_STATUS_HID_PENDING_BIT] =
+            mid_status[`PORT_STATUS_HID_PENDING_BIT];
         pack_spi_status[3:0] = threat_i;
     endfunction
 
@@ -61,12 +67,12 @@ module register_file (
         if (rst) begin
             sys_control <= 8'h00;
             clear_fault <= {`NUM_PORTS{1'b0}};
-            approve     <= {`NUM_PORTS{1'b0}};
+            approve_hid <= {`NUM_PORTS{1'b0}};
             for (i = 0; i < `NUM_PORTS; i = i + 1)
-                p_control[i] <= 8'h00;  // policy HID-allowed default
+                p_control[i] <= 8'h00;
         end else begin
             clear_fault <= {`NUM_PORTS{1'b0}};
-            approve     <= {`NUM_PORTS{1'b0}};
+            approve_hid <= {`NUM_PORTS{1'b0}};
 
             if (reg_we) begin
                 if (reg_waddr == `ADDR_SYS_CONTROL)
@@ -75,26 +81,24 @@ module register_file (
                 // Pn_CONTROL at 0x10 / 0x20 / 0x30 / 0x40
                 if (w_is_port && reg_waddr[3:0] == 4'h0) begin
                     p_control[w_port] <= reg_wdata;
-                    if (reg_wdata[`PCTL_CLEAR_FAULT_BIT])
+                    if (reg_wdata[`CTRL_CLEAR_FAULT_BIT])
                         clear_fault[w_port] <= 1'b1;
-                    if (reg_wdata[`PCTL_APPROVE_BIT]) begin
-                        approve[w_port]     <= 1'b1;
-                        clear_fault[w_port] <= 1'b1;  // approve releases hold
-                    end
+                    if (reg_wdata[`CTRL_APPROVE_HID_BIT])
+                        approve_hid[w_port] <= 1'b1;
                 end
             end
         end
     end
 
-    assign manual_kill[0] = p_control[0][`PCTL_MANUAL_KILL_BIT];
-    assign manual_kill[1] = p_control[1][`PCTL_MANUAL_KILL_BIT];
-    assign manual_kill[2] = p_control[2][`PCTL_MANUAL_KILL_BIT];
-    assign manual_kill[3] = p_control[3][`PCTL_MANUAL_KILL_BIT];
+    assign manual_kill[0] = p_control[0][`CTRL_MANUAL_KILL_BIT];
+    assign manual_kill[1] = p_control[1][`CTRL_MANUAL_KILL_BIT];
+    assign manual_kill[2] = p_control[2][`CTRL_MANUAL_KILL_BIT];
+    assign manual_kill[3] = p_control[3][`CTRL_MANUAL_KILL_BIT];
 
-    assign policy_mode[0] = p_control[0][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
-    assign policy_mode[1] = p_control[1][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
-    assign policy_mode[2] = p_control[2][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
-    assign policy_mode[3] = p_control[3][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
+    assign policy_mode[0] = p_control[0][2:0];
+    assign policy_mode[1] = p_control[1][2:0];
+    assign policy_mode[2] = p_control[2][2:0];
+    assign policy_mode[3] = p_control[3][2:0];
 
     always_comb begin
         reg_rdata = 8'h00;
@@ -139,7 +143,7 @@ module register_file (
         .intf_class    (intf_class),
         .clear_fault   (clear_fault),
         .manual_kill   (manual_kill),
-        .approve       (approve),
+        .approve_hid   (approve_hid),
         .p_control     (p_control)
     );
     // synthesis translate_on

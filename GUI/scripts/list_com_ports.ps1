@@ -22,6 +22,7 @@ Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
     ForEach-Object { Write-Host ("  " + $_.Name) }
 
 Write-Host ""
-Write-Host "Tier-2 (cross-wired CP2102s — dummy mcu_sim, not PCB):"
+Write-Host "Tier-2 (cross-wired CP2102s - dummy mcu_sim, not PCB):"
 Write-Host '  python scripts\mcu_sim.py --port COM3 -i'
-Write-Host '  .\scripts\run_windows_serial.ps1 -Port COM4'
+Write-Host '  .\scripts\run_windows_serial.ps1'
+Write-Host '  .\scripts\run_windows_serial.ps1 -Port COM3   # optional preselect'

@@ -11,8 +11,14 @@
 `include "defines.svh"
 
 module main_wrapper #(
+    // Sim: skip MMCM (drive clk_12m at 48 MHz in the TB). Board: leave 0.
     parameter bit SIM_CLK_BYPASS    = 1'b0,
-    parameter int BOOT_STIM_CYCLES  = 1_000_000
+    // Cycles after lock before auto HID self-stim (~20 ms @ 48 MHz on board).
+    parameter int BOOT_STIM_CYCLES  = 1_000_000,
+    // 1 = boot HID selfstim demo on port0 (LEDs / midterm). 0 = live taps only
+    // (no dummy VID/PID/kill) — use for USB breakout / Rubber Ducky bring-up:
+    //   make -C FPGA build ENABLE_SELFSTIM=0
+    parameter bit ENABLE_SELFSTIM   = 1'b1
 ) (
     input  logic clk_12m,
     input  logic btn_rst,
@@ -69,6 +75,7 @@ module main_wrapper #(
         end
     endgenerate
 
+    // Async buttons → 48 MHz domain (btn high when pressed)
     always_ff @(posedge clk_48m) begin
         rst_btn_sync0 <= btn_rst;
         rst_btn_sync1 <= rst_btn_sync0;
@@ -82,8 +89,8 @@ module main_wrapper #(
     logic [`NUM_PORTS-1:0] dm;
     logic [`NUM_PORTS-1:0] clear_fault;
     logic [`NUM_PORTS-1:0] manual_kill;
-    logic [`NUM_PORTS-1:0] approve;
     logic [2:0]            policy_mode [`NUM_PORTS-1:0];
+    logic [`NUM_PORTS-1:0] approve_hid;
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code   [`NUM_PORTS-1:0];
     logic [3:0]            threat_detail [`NUM_PORTS-1:0];
@@ -108,8 +115,10 @@ module main_wrapper #(
     logic [7:0] reg_wdata, reg_rdata;
     logic [`NUM_PORTS-1:0] clear_fault_spi;
     logic [`NUM_PORTS-1:0] manual_kill_spi;
-    logic [`NUM_PORTS-1:0] approve_spi;
+    logic [2:0]            policy_mode_spi [`NUM_PORTS-1:0];
+    logic [`NUM_PORTS-1:0] approve_hid_spi;
 
+    // On-FPGA demo stimulus (no carrier required): drive port0 after lock.
     logic        stim_oe, stim_dp, stim_dn;
     logic        stim_busy, stim_done;
     logic        stim_start;
@@ -123,7 +132,7 @@ module main_wrapper #(
             stim_start <= 1'b0;
         end else begin
             stim_start <= 1'b0;
-            if (!boot_fired) begin
+            if (ENABLE_SELFSTIM && !boot_fired) begin
                 if (boot_cnt >= 24'(BOOT_STIM_CYCLES)) begin
                     boot_fired <= 1'b1;
                     stim_start <= 1'b1;
@@ -136,7 +145,7 @@ module main_wrapper #(
     usb_demo_selfstim u_selfstim (
         .clk_48m(clk_48m),
         .rst    (rst),
-        .start  (stim_start),
+        .start  (ENABLE_SELFSTIM ? stim_start : 1'b0),
         .busy   (stim_busy),
         .done   (stim_done),
         .tx_oe  (stim_oe),
@@ -144,16 +153,19 @@ module main_wrapper #(
         .tx_dn  (stim_dn)
     );
 
-    assign dp[0] = stim_oe ? stim_dp : p0_dp_tap;
-    assign dm[0] = stim_oe ? stim_dn : p0_dm_tap;
+    // Live-tap build never muxes selfstim onto port0 (even if stim_oe glitches).
+    assign dp[0] = (ENABLE_SELFSTIM && stim_oe) ? stim_dp : p0_dp_tap;
+    assign dm[0] = (ENABLE_SELFSTIM && stim_oe) ? stim_dn : p0_dm_tap;
     assign dp[3:1] = {p3_dp_tap, p2_dp_tap, p1_dp_tap};
     assign dm[3:1] = {p3_dm_tap, p2_dm_tap, p1_dm_tap};
 
-    // btn_clear: clear fault only (HID pending re-arms without SPI approve)
+    // btn_clear clears faults (OR with SPI clear); does not approve HID
     assign clear_fault = clear_fault_spi | {`NUM_PORTS{clr_btn_sync1}};
     assign manual_kill = manual_kill_spi;
-    assign approve     = approve_spi;
+    assign policy_mode = policy_mode_spi;
+    assign approve_hid = approve_hid_spi;
 
+    // Isolate: mux enable active-low → high when killed; cut eFuse when killed
     assign p0_mux_en_n = kill[0];
     assign p1_mux_en_n = kill[1];
     assign p2_mux_en_n = kill[2];
@@ -164,8 +176,9 @@ module main_wrapper #(
     assign p3_efuse_en = ~kill[3];
 
     assign led   = kill;
-    assign led_r = ~(|kill);
-    assign led_g = ~(stim_busy || stim_done);
+    assign led_r = ~(|kill);                 // red = any kill (active-low)
+    // Demo bit: green while stim runs/done. Live-tap bit: green idle (no stim).
+    assign led_g = ENABLE_SELFSTIM ? ~(stim_busy || stim_done) : 1'b0;
     assign led_b = 1'b1;
 
     sniffer_wrapper u_sniffers (
@@ -175,8 +188,8 @@ module main_wrapper #(
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
-        .approve           (approve),
         .policy_mode       (policy_mode),
+        .approve_hid       (approve_hid),
         .kill              (kill),
         .threat_code       (threat_code),
         .threat_detail     (threat_detail),
@@ -214,8 +227,8 @@ module main_wrapper #(
         .intf_class    (intf_class),
         .clear_fault   (clear_fault_spi),
         .manual_kill   (manual_kill_spi),
-        .approve       (approve_spi),
-        .policy_mode   (policy_mode)
+        .policy_mode   (policy_mode_spi),
+        .approve_hid   (approve_hid_spi)
     );
 
     spi_slave u_spi (

@@ -45,8 +45,8 @@ set log_candidates [list \
 ]
 set fail 0
 set saw_pass 0
-set pass_re {tb_(sniffer|enumeration_analysis|kill_e2e|enum_e2e|demo_threat|spi_enum_e2e|main_selfstim|spi_manual_kill|kill_manual_cross|hid_timing|hid_pending_approve|suspicious_enum|cov_isolation|cov_sniffer): PASS}
-set fail_re {tb_(sniffer|enumeration_analysis|kill_e2e|enum_e2e|demo_threat|spi_enum_e2e|main_selfstim|spi_manual_kill|kill_manual_cross|hid_timing|hid_pending_approve|suspicious_enum|cov_isolation|cov_sniffer): FAIL}
+set pass_re {tb_(sniffer|sie_ls|enumeration_analysis|usb_line_attach|kill_e2e|enum_e2e|demo_threat|hid_confirm|spi_enum_e2e|main_selfstim|spi_manual_kill|kill_manual_cross|hid_timing|hid_pending_approve|suspicious_enum|bit_stuff|cov_isolation|cov_sniffer): PASS}
+set fail_re {tb_(sniffer|sie_ls|enumeration_analysis|usb_line_attach|kill_e2e|enum_e2e|demo_threat|hid_confirm|spi_enum_e2e|main_selfstim|spi_manual_kill|kill_manual_cross|hid_timing|hid_pending_approve|suspicious_enum|bit_stuff|cov_isolation|cov_sniffer): FAIL}
 foreach lg $log_candidates {
   if {[file exists $lg]} {
     set fh [open $lg r]

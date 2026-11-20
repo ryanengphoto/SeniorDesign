@@ -19,10 +19,13 @@ source [file join $script_dir cov_enable.tcl]
 
 set tops [list \
   tb_sniffer \
+  tb_sie_ls \
   tb_enumeration_analysis \
+  tb_usb_line_attach \
   tb_kill_e2e \
   tb_enum_e2e \
   tb_demo_threat \
+  tb_hid_confirm \
   tb_spi_enum_e2e \
   tb_main_selfstim \
   tb_spi_manual_kill \

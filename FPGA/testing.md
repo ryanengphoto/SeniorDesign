@@ -85,11 +85,13 @@ Board / `sniffer_wrapper` leave defaults (real HID / re-enum timing from `define
 
 | Parameter | Meaning | Board default |
 | --- | --- | --- |
-| `POLICY_STORAGE_ONLY` | Compile-time storage-only policy | `0` (HID-allowed) |
+| `SPEED_MODE` | `usb_line_attach` speed: 0 auto, 1 FS, 2 LS | `0` |
 | `HID_MIN_INTERVAL_CYCLES_P` | Min key-down Δt before burst streak | `HID_MIN_INTERVAL_CYCLES` (20 ms) |
 | `HID_QUARANTINE_CYCLES_P` | Post-enum key-down cooldown window | `HID_QUARANTINE_CYCLES` (2.0 s) |
-| `REENUM_WINDOW_CYCLES_P` | Bus-reset storm window | `REENUM_WINDOW_CYCLES` (100 ms) |
-| `REENUM_STORM_THRESH_P` | Resets in window → storm pulse | `REENUM_STORM_THRESHOLD` (3) |
+| `REENUM_WINDOW_CYCLES_P` | Disconnect-pulse storm window | `REENUM_WINDOW_CYCLES` (100 ms) |
+| `REENUM_STORM_THRESH_P` | `clear_telemetry` pulses in window → storm | `REENUM_STORM_THRESHOLD` (3) |
+
+Policy is not a parameter. Drive `policy_mode` with `CTRL_POLICY_STORAGE_ONLY` (0), `CTRL_POLICY_HID_CONFIRM` (1), or `CTRL_POLICY_HID_ALLOW` (2). Approve is `approve_hid`.
 
 ---
 
@@ -104,10 +106,12 @@ Must match `SIM_ALL_TOPS` in `Makefile` and `tops` in `scripts/sim_all.tcl`.
 | Top | What it proves |
 | --- | --- |
 | `tb_sniffer` | Port0 CRC → kill threat `0x5` (smoke) |
+| `tb_sie_ls` | Low-Speed selectable RX: mute-before-lock, good/corrupt DATA0, HID kill `0x1` |
 | `tb_enumeration_analysis` | Direct-event device + config descriptor telemetry |
 | `tb_kill_e2e` | All ports sequential + concurrent CRC kill; sticky until SPI `Pn_CONTROL[6]` clear |
 | `tb_enum_e2e` | Wire SETUP + descriptors → VID/PID/class latch (no kill) |
 | `tb_demo_threat` | Wire HID interface on storage-only policy → kill `0x1` |
+| `tb_hid_confirm` | HID-after-confirm policy → pending hold; clear keeps; approve releases |
 | `tb_spi_enum_e2e` | Wire enum → SPI-read `Pn_STATUS`/VID/PID/class; HID kill `0x1` + SPI clear |
 | `tb_main_selfstim` | `main_wrapper` auto self-stim → LED kill → SPI telemetry → `btn_clear` |
 | `tb_spi_manual_kill` | SPI `Pn_CONTROL[7]` → threat `0x7` + clear (all ports; no USB) |
@@ -125,11 +129,11 @@ All are procedural (XSim 2018.2 ignores concurrent `assert property` / XSIM 43-4
 | File | Attached to | Checks |
 | --- | --- | --- |
 | `isolation_controller_sva.sv` | `isolation_controller` | Sticky kill; manual→`0x7`; clear releases; threat latch; sticky threat ignore |
-| `sniffer_block_sva.sv` | `sniffer_block` | HID/CRC threat mux; `POLICY_STORAGE_ONLY`; `port_status` bits |
-| `enumeration_analysis_sva.sv` | `enumeration_analysis` | Legal `ST_*`; sticky `attached` / desc / intf valid |
+| `sniffer_block_sva.sv` | `sniffer_block` | Threat mux (CRC / suspicious / storage HID / timing); `port_status` HID-pending bit |
+| `enumeration_analysis_sva.sv` | `enumeration_analysis` | Legal `ST_*`; device-desc sticky until `clear_telemetry` |
 | `usb_packet_frontend_sva.sv` | `usb_packet_frontend` | `crc_fault`↔`pkt_end`; no orphan end; `data_valid` in-packet |
 | `sniffer_wrapper_sva.sv` | `sniffer_wrapper` | Per-port status mirror; cross-port clear isolation; `0x7` needs manual |
-| `register_file_sva.sv` | `register_file` | CONTROL[6/7]→clear/manual; RO VID/PID/class/status mirrors |
+| `register_file_sva.sv` | `register_file` | CONTROL[5/6/7]→approve_hid/clear/manual; RO VID/PID/class/status/`THREAT_DETAIL` |
 | `spi_slave_sva.sv` | `spi_slave` | `reg_we` only while CS active; single-cycle we |
 | `main_wrapper_sva.sv` | `main_wrapper` | `mux_en_n`/`efuse_en`/`led`/`led_r` polarity vs `kill` |
 
@@ -171,7 +175,7 @@ Acceptance remains **`make sim-all` (XSim)** — that is where `isolation_contro
 | Notes | `verilator/README.md`; build trees under `verilator/obj_dir/` (gitignored) |
 | Flags | `--binary --timing --coverage` (line + branch/expr + toggle; no native FSM on 5.040) |
 | SVA | Stripped via `` `ifndef VERILATOR `` on all `*_sva` instantiations |
-| DUT scope | `isolation_controller` + `sniffer_block` + enum + TinyFPGA RX/TX/`strobe`. **Not** `main_wrapper` / MMCM / SPI RF |
+| DUT scope | `isolation_controller` + `sniffer_block` + enum + TinyFPGA RX/TX (`usb_sie_rx` / `usb_fs_tx`). **Not** `main_wrapper` / MMCM / SPI RF. Legacy RX helpers in `FPGA/references/`. |
 | Outputs | `cov/verilator/summary.txt`, `annotate/`, `coverage.info` (lcov), `merged.dat` |
 | Helpers | `scripts/line_cov_summary.py`, `cov_type_summary.py`, `toggle_cov_summary.py` |
 

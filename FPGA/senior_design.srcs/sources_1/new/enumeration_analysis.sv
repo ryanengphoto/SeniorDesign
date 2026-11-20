@@ -1,10 +1,12 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module: enumeration_analysis
+// Module: enumeration_analysis  (midterm §6.3.4)
 // Purpose: EP0 GET_DESCRIPTOR parse → VID/PID/classes + suspicious-enum pulses.
 //          Walks all interface descriptors in a config blob (sequential).
-//          Tracks bus-reset storms for re-enumeration DoS.
+//          Presence is line J (line_attached), not packet activity.
+//          clear_telemetry (disconnect / long SE0) drops latched descriptors
+//          and counts toward a re-enumeration storm. No usb_reset_det.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -16,6 +18,10 @@ module enumeration_analysis #(
     input  logic        clk,
     input  logic        rst,
 
+    input  logic        line_attached,
+    // 1-cycle: device unplugged (or long SE0) — drop latched descriptors.
+    input  logic        clear_telemetry,
+
     input  logic        pkt_start,
     input  logic        pkt_end,
     input  logic [3:0]  pid,
@@ -24,7 +30,6 @@ module enumeration_analysis #(
     input  logic        data_valid,
     input  logic [7:0]  data,
     input  logic        crc_ok,
-    input  logic        bus_reset,   // level from usb_reset_det (sticky while SE0)
 
     output logic [15:0] vid,
     output logic [15:0] pid_dev,
@@ -47,6 +52,8 @@ module enumeration_analysis #(
     output logic        hid_keyboard_pulse,
     output logic        reenum_storm_pulse
 );
+
+    assign attached = line_attached;
 
     localparam [3:0] PID_SETUP = 4'b1101;
     localparam [3:0] PID_DATA0 = 4'b0011;
@@ -75,7 +82,6 @@ module enumeration_analysis #(
     logic [15:0] w_total_length;
     logic        overflow_latched;
 
-    logic        bus_reset_d;
     logic [31:0] reenum_window_cnt;
     logic [3:0]  reenum_count;
     logic        reenum_storm_latched;
@@ -94,241 +100,211 @@ module enumeration_analysis #(
     assign iface_sub_b   = mem[scan_i + 6'd6];
     assign iface_proto_b = mem[scan_i + 6'd7];
 
-    wire bus_reset_rise = bus_reset && !bus_reset_d;
+    task automatic clear_desc_state;
+        state             <= ST_IDLE;
+        setup_count       <= 4'd0;
+        want_dtype        <= 8'd0;
+        want_len          <= 8'd0;
+        got_len           <= 8'd0;
+        scan_i            <= 6'd0;
+        scan_guard        <= 4'd0;
+        w_total_length    <= 16'd0;
+        overflow_latched  <= 1'b0;
+        vid               <= 16'd0;
+        pid_dev           <= 16'd0;
+        dev_class         <= 8'd0;
+        intf_class        <= 8'd0;
+        intf_subclass     <= 8'd0;
+        intf_protocol     <= 8'd0;
+        device_desc_valid <= 1'b0;
+        intf_class_valid  <= 1'b0;
+        config_walk_done  <= 1'b0;
+        hid_keyboard_seen <= 1'b0;
+        hid_iface_count   <= 4'd0;
+        msc_iface_count   <= 4'd0;
+    endtask
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            state                 <= ST_IDLE;
-            setup_count           <= 4'd0;
-            want_dtype            <= 8'd0;
-            want_len              <= 8'd0;
-            got_len               <= 8'd0;
-            scan_i                <= 6'd0;
-            scan_guard            <= 4'd0;
-            w_total_length        <= 16'd0;
-            overflow_latched      <= 1'b0;
-            vid                   <= 16'd0;
-            pid_dev               <= 16'd0;
-            dev_class             <= 8'd0;
-            intf_class            <= 8'd0;
-            intf_subclass         <= 8'd0;
-            intf_protocol         <= 8'd0;
-            device_desc_valid     <= 1'b0;
-            intf_class_valid      <= 1'b0;
-            config_walk_done      <= 1'b0;
-            hid_keyboard_seen     <= 1'b0;
-            hid_iface_count       <= 4'd0;
-            msc_iface_count       <= 4'd0;
-            attached              <= 1'b0;
-            desc_overflow_pulse   <= 1'b0;
+            clear_desc_state();
+            desc_overflow_pulse     <= 1'b0;
             composite_hid_msc_pulse <= 1'b0;
-            multi_hid_pulse       <= 1'b0;
-            hid_keyboard_pulse    <= 1'b0;
-            reenum_storm_pulse    <= 1'b0;
-            bus_reset_d           <= 1'b0;
-            reenum_window_cnt     <= 32'd0;
-            reenum_count          <= 4'd0;
-            reenum_storm_latched  <= 1'b0;
+            multi_hid_pulse         <= 1'b0;
+            hid_keyboard_pulse      <= 1'b0;
+            reenum_storm_pulse      <= 1'b0;
+            reenum_window_cnt       <= 32'd0;
+            reenum_count            <= 4'd0;
+            reenum_storm_latched    <= 1'b0;
         end else begin
-            // Default: pulses are one-cycle
             desc_overflow_pulse     <= 1'b0;
             composite_hid_msc_pulse <= 1'b0;
             multi_hid_pulse         <= 1'b0;
             hid_keyboard_pulse      <= 1'b0;
             reenum_storm_pulse      <= 1'b0;
 
-            if (pkt_start || data_valid || pkt_end)
-                attached <= 1'b1;
+            if (clear_telemetry) begin
+                clear_desc_state();
 
-            // ---- Re-enumeration storm tracker ----
-            bus_reset_d <= bus_reset;
-            if (reenum_window_cnt != 32'd0)
-                reenum_window_cnt <= reenum_window_cnt - 32'd1;
-            else
-                reenum_count <= 4'd0;
-
-            if (bus_reset_rise) begin
-                // New bus reset → drop sticky enum/attach so the next device
-                // starts clean (also clears sniffer `approved` via !attached).
-                state                 <= ST_IDLE;
-                setup_count           <= 4'd0;
-                got_len               <= 8'd0;
-                scan_i                <= 6'd0;
-                scan_guard            <= 4'd0;
-                overflow_latched      <= 1'b0;
-                vid                   <= 16'd0;
-                pid_dev               <= 16'd0;
-                dev_class             <= 8'd0;
-                intf_class            <= 8'd0;
-                intf_subclass         <= 8'd0;
-                intf_protocol         <= 8'd0;
-                device_desc_valid     <= 1'b0;
-                intf_class_valid      <= 1'b0;
-                config_walk_done      <= 1'b0;
-                hid_keyboard_seen     <= 1'b0;
-                hid_iface_count       <= 4'd0;
-                msc_iface_count       <= 4'd0;
-                attached              <= 1'b0;
-
+                // Each disconnect / long-SE0 pulse is one re-enum event.
                 if (reenum_window_cnt == 32'd0) begin
                     reenum_window_cnt <= REENUM_WINDOW_CYCLES_P;
                     reenum_count      <= 4'd1;
                 end else begin
                     reenum_count <= reenum_count + 4'd1;
-                    if ((reenum_count + 4'd1) >= REENUM_STORM_THRESH_P &&
+                    if ((32'(reenum_count) + 32'd1) >= REENUM_STORM_THRESH_P &&
                         !reenum_storm_latched) begin
                         reenum_storm_latched <= 1'b1;
                         reenum_storm_pulse   <= 1'b1;
                     end
                 end
-            end
+            end else begin
+                if (reenum_window_cnt != 32'd0)
+                    reenum_window_cnt <= reenum_window_cnt - 32'd1;
+                else
+                    reenum_count <= 4'd0;
 
-            // New SETUP on EP0 aborts any in-flight descriptor collection
-            // (skipped on the bus_reset rising cycle — reset owns that beat).
-            if (!bus_reset_rise &&
-                pkt_end && crc_ok && (pid == PID_SETUP) && (endp == 4'h0)) begin
-                state       <= ST_SETUP_DATA;
-                setup_count <= 4'd0;
-            end else if (!bus_reset_rise) begin
-                case (state)
-                    ST_IDLE: ;
+                // New SETUP on EP0 aborts any in-flight descriptor collection
+                if (pkt_end && crc_ok && (pid == PID_SETUP) && (endp == 4'h0)) begin
+                    state       <= ST_SETUP_DATA;
+                    setup_count <= 4'd0;
+                end else begin
+                    case (state)
+                        ST_IDLE: ;
 
-                    ST_SETUP_DATA: begin
-                        if (pkt_start && is_data)
-                            setup_count <= 4'd0;
+                        ST_SETUP_DATA: begin
+                            if (pkt_start && is_data)
+                                setup_count <= 4'd0;
 
-                        if (data_valid && setup_count < 4'd8) begin
-                            setup[setup_count[2:0]] <= data;
-                            setup_count             <= setup_count + 4'd1;
-                        end
+                            if (data_valid && setup_count < 4'd8) begin
+                                setup[setup_count[2:0]] <= data;
+                                setup_count             <= setup_count + 4'd1;
+                            end
 
-                        if (pkt_end && is_data) begin
-                            if (crc_ok && setup_count == 4'd8 &&
-                                setup[1] == REQ_GET_DESCRIPTOR) begin
-                                want_dtype <= setup[3];
-                                if (setup[3] == DT_DEVICE) begin
-                                    want_len <= 8'd18;
-                                    got_len  <= 8'd0;
-                                    state    <= ST_WAIT_DESC;
-                                end else if (setup[3] == DT_CONFIGURATION) begin
-                                    // Overflow if host asks for >512
-                                    if ({setup[7], setup[6]} > 16'd512) begin
-                                        desc_overflow_pulse <= 1'b1;
-                                        overflow_latched    <= 1'b1;
-                                    end
-                                    if ((setup[7] != 8'd0) || (setup[6] == 8'd0) ||
-                                        (setup[6] > 8'd64))
-                                        want_len <= 8'd64;
-                                    else
-                                        want_len <= setup[6];
-                                    got_len <= 8'd0;
-                                    // Fresh config walk — drop prior HID/intf latch
-                                    // so MSC-then-HID / re-config is re-evaluated.
-                                    hid_iface_count   <= 4'd0;
-                                    msc_iface_count   <= 4'd0;
-                                    hid_keyboard_seen <= 1'b0;
-                                    intf_class_valid  <= 1'b0;
-                                    intf_class        <= 8'd0;
-                                    intf_subclass     <= 8'd0;
-                                    intf_protocol     <= 8'd0;
-                                    config_walk_done  <= 1'b0;
-                                    state             <= ST_WAIT_DESC;
+                            if (pkt_end && is_data) begin
+                                if (crc_ok && setup_count == 4'd8 &&
+                                    setup[1] == REQ_GET_DESCRIPTOR) begin
+                                    want_dtype <= setup[3];
+                                    if (setup[3] == DT_DEVICE) begin
+                                        want_len <= 8'd18;
+                                        got_len  <= 8'd0;
+                                        state    <= ST_WAIT_DESC;
+                                    end else if (setup[3] == DT_CONFIGURATION) begin
+                                        if ({setup[7], setup[6]} > 16'd512) begin
+                                            desc_overflow_pulse <= 1'b1;
+                                            overflow_latched    <= 1'b1;
+                                        end
+                                        if ((setup[7] != 8'd0) || (setup[6] == 8'd0) ||
+                                            (setup[6] > 8'd64))
+                                            want_len <= 8'd64;
+                                        else
+                                            want_len <= setup[6];
+                                        got_len <= 8'd0;
+                                        // Fresh config walk — drop prior HID/intf latch
+                                        // so MSC-then-HID / re-config is re-evaluated.
+                                        hid_iface_count   <= 4'd0;
+                                        msc_iface_count   <= 4'd0;
+                                        hid_keyboard_seen <= 1'b0;
+                                        intf_class_valid  <= 1'b0;
+                                        intf_class        <= 8'd0;
+                                        intf_subclass     <= 8'd0;
+                                        intf_protocol     <= 8'd0;
+                                        config_walk_done  <= 1'b0;
+                                        state             <= ST_WAIT_DESC;
+                                    end else
+                                        state <= ST_IDLE;
                                 end else
                                     state <= ST_IDLE;
-                            end else
-                                state <= ST_IDLE;
-                        end
-                    end
-
-                    ST_WAIT_DESC: begin
-                        if (pkt_start && is_data)
-                            state <= ST_DESC_DATA;
-                    end
-
-                    ST_DESC_DATA: begin
-                        if (data_valid && got_len < 8'd64) begin
-                            mem[got_len[5:0]] <= data;
-                            got_len           <= got_len + 8'd1;
+                            end
                         end
 
-                        if (pkt_end && is_data) begin
-                            if (!crc_ok) begin
-                                state <= ST_IDLE;
-                            // Host wLength met, or config short-packet that already
-                            // carries the full device wTotalLength (≤64B buffer).
-                            end else if ((got_len >= want_len) ||
-                                         ((want_dtype == DT_CONFIGURATION) &&
-                                          (got_len >= 8'd4) &&
-                                          ({mem[3], mem[2]} <= 16'd64) &&
-                                          (got_len >= {mem[3], mem[2]}))) begin
-                                if (want_dtype == DT_DEVICE) begin
-                                    dev_class         <= mem[4];
-                                    vid               <= {mem[9], mem[8]};
-                                    pid_dev           <= {mem[11], mem[10]};
-                                    device_desc_valid <= 1'b1;
-                                    state             <= ST_IDLE;
-                                end else if (want_dtype == DT_CONFIGURATION) begin
-                                    w_total_length <= {mem[3], mem[2]};
-                                    if ({mem[3], mem[2]} > 16'd512 && !overflow_latched) begin
-                                        desc_overflow_pulse <= 1'b1;
-                                        overflow_latched    <= 1'b1;
-                                    end
-                                    scan_i     <= 6'd0;
-                                    scan_guard <= 4'd0;
-                                    state      <= ST_SCAN_INTF;
-                                end else
+                        ST_WAIT_DESC: begin
+                            if (pkt_start && is_data)
+                                state <= ST_DESC_DATA;
+                        end
+
+                        ST_DESC_DATA: begin
+                            if (data_valid && got_len < 8'd64) begin
+                                mem[got_len[5:0]] <= data;
+                                got_len           <= got_len + 8'd1;
+                            end
+
+                            if (pkt_end && is_data) begin
+                                if (!crc_ok) begin
                                     state <= ST_IDLE;
-                            end else begin
-                                state <= ST_WAIT_DESC;
-                            end
-                        end
-                    end
-
-                    ST_SCAN_INTF: begin
-                        scan_guard <= scan_guard + 4'd1;
-                        if ((scan_i + 6'd5) >= got_len[5:0] || scan_guard == 4'd15) begin
-                            // Finished (or aborted) walk — emit composite / multi-HID
-                            config_walk_done  <= 1'b1;
-                            if ((hid_iface_count > 4'd0) && (msc_iface_count > 4'd0))
-                                composite_hid_msc_pulse <= 1'b1;
-                            if (hid_iface_count > 4'd1)
-                                multi_hid_pulse <= 1'b1;
-                            state <= ST_IDLE;
-                        end else if (dlen == 8'd0) begin
-                            config_walk_done  <= 1'b1;
-                            if ((hid_iface_count > 4'd0) && (msc_iface_count > 4'd0))
-                                composite_hid_msc_pulse <= 1'b1;
-                            if (hid_iface_count > 4'd1)
-                                multi_hid_pulse <= 1'b1;
-                            state <= ST_IDLE;
-                        end else if (dtype == DT_INTERFACE) begin
-                            // Latch first interface fields
-                            if (!intf_class_valid) begin
-                                intf_class       <= iface_class_b;
-                                intf_subclass    <= iface_sub_b;
-                                intf_protocol    <= iface_proto_b;
-                                intf_class_valid <= 1'b1;
-                            end
-                            if (iface_class_b == `USB_CLASS_HID) begin
-                                hid_iface_count <= hid_iface_count + 4'd1;
-                                // Any HID interface requires operator approve (keyboard,
-                                // mouse, or boot-protocol unknown). Timing filter still
-                                // looks for boot-keyboard reports after approve.
-                                if (!hid_keyboard_seen) begin
-                                    hid_keyboard_seen  <= 1'b1;
-                                    hid_keyboard_pulse <= 1'b1;
+                                // Host wLength met, or config short-packet that already
+                                // carries the full device wTotalLength (≤64B buffer).
+                                end else if ((got_len >= want_len) ||
+                                             ((want_dtype == DT_CONFIGURATION) &&
+                                              (got_len >= 8'd4) &&
+                                              ({mem[3], mem[2]} <= 16'd64) &&
+                                              (got_len >= {mem[3], mem[2]}))) begin
+                                    if (want_dtype == DT_DEVICE) begin
+                                        dev_class         <= mem[4];
+                                        vid               <= {mem[9], mem[8]};
+                                        pid_dev           <= {mem[11], mem[10]};
+                                        device_desc_valid <= 1'b1;
+                                        state             <= ST_IDLE;
+                                    end else if (want_dtype == DT_CONFIGURATION) begin
+                                        w_total_length <= {mem[3], mem[2]};
+                                        if ({mem[3], mem[2]} > 16'd512 && !overflow_latched) begin
+                                            desc_overflow_pulse <= 1'b1;
+                                            overflow_latched    <= 1'b1;
+                                        end
+                                        scan_i     <= 6'd0;
+                                        scan_guard <= 4'd0;
+                                        state      <= ST_SCAN_INTF;
+                                    end else
+                                        state <= ST_IDLE;
+                                end else begin
+                                    state <= ST_WAIT_DESC;
                                 end
-                            end else if (iface_class_b == `USB_CLASS_MSC) begin
-                                msc_iface_count <= msc_iface_count + 4'd1;
                             end
-                            scan_i <= scan_i + dlen[5:0];
-                        end else begin
-                            scan_i <= scan_i + dlen[5:0];
                         end
-                    end
 
-                    default: state <= ST_IDLE;
-                endcase
+                        ST_SCAN_INTF: begin
+                            scan_guard <= scan_guard + 4'd1;
+                            if ((scan_i + 6'd5) >= got_len[5:0] || scan_guard == 4'd15) begin
+                                config_walk_done <= 1'b1;
+                                if ((hid_iface_count > 4'd0) && (msc_iface_count > 4'd0))
+                                    composite_hid_msc_pulse <= 1'b1;
+                                if (hid_iface_count > 4'd1)
+                                    multi_hid_pulse <= 1'b1;
+                                state <= ST_IDLE;
+                            end else if (dlen == 8'd0) begin
+                                config_walk_done <= 1'b1;
+                                if ((hid_iface_count > 4'd0) && (msc_iface_count > 4'd0))
+                                    composite_hid_msc_pulse <= 1'b1;
+                                if (hid_iface_count > 4'd1)
+                                    multi_hid_pulse <= 1'b1;
+                                state <= ST_IDLE;
+                            end else if (dtype == DT_INTERFACE) begin
+                                if (!intf_class_valid) begin
+                                    intf_class       <= iface_class_b;
+                                    intf_subclass    <= iface_sub_b;
+                                    intf_protocol    <= iface_proto_b;
+                                    intf_class_valid <= 1'b1;
+                                end
+                                if (iface_class_b == `USB_CLASS_HID) begin
+                                    hid_iface_count <= hid_iface_count + 4'd1;
+                                    // Any HID interface requires operator approve
+                                    // under HID_CONFIRM. Timing filter still looks
+                                    // for boot-keyboard reports after approve.
+                                    if (!hid_keyboard_seen) begin
+                                        hid_keyboard_seen  <= 1'b1;
+                                        hid_keyboard_pulse <= 1'b1;
+                                    end
+                                end else if (iface_class_b == `USB_CLASS_MSC) begin
+                                    msc_iface_count <= msc_iface_count + 4'd1;
+                                end
+                                scan_i <= scan_i + dlen[5:0];
+                            end else begin
+                                scan_i <= scan_i + dlen[5:0];
+                            end
+                        end
+
+                        default: state <= ST_IDLE;
+                    endcase
+                end
             end
         end
     end
@@ -338,6 +314,7 @@ module enumeration_analysis #(
     enumeration_analysis_sva u_enum_sva (
         .clk               (clk),
         .rst               (rst),
+        .clear_telemetry   (clear_telemetry),
         .state             (state),
         .attached          (attached),
         .device_desc_valid (device_desc_valid),

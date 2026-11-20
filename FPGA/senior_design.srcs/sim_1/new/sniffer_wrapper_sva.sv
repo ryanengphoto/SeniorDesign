@@ -38,7 +38,8 @@ module sniffer_wrapper_sva (
                     if (port_status[i][`PORT_STATUS_ISOLATED_BIT] !== kill[i])
                         $error("sniffer_wrapper SVA: port%0d ISOLATED mismatch", i);
                     if (port_status[i][`PORT_STATUS_THREAT_PRESENT_BIT] !==
-                        (threat_code[i] != `THREAT_NO_FAULT))
+                        ((threat_code[i] != `THREAT_NO_FAULT) |
+                         port_status[i][`PORT_STATUS_HID_PENDING_BIT]))
                         $error("sniffer_wrapper SVA: port%0d THREAT_PRESENT mismatch", i);
 
                     // Rising manual threat 0x7 requires that port's manual_kill

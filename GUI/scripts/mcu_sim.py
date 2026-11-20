@@ -6,8 +6,8 @@ JSON contract as Docs/firmwmare_slop.md §4 so Flutter SerialDevice can be
 tested over a socat PTY pair (or dual FTDI) without firmware.
 
 Modes:
-  (default) Timed demo like MockDevice (port 1 → burst ~15s)
-  --interactive / -i   REPL: you trigger plug/enum/burst/isolate yourself
+  (default) Timed demo like MockDevice (port 1 → PENDING_HID_CONFIRM ~5s)
+  --interactive / -i   REPL: you trigger plug/burst/isolate yourself
 
 Usage (pick ONE host path — both stay supported):
 
@@ -51,14 +51,15 @@ Commands (port is 0–3):
   script on|off        timed demo on/off (off in -i by default)
   plug <p>             connect flash-like device (AUTHORIZED)
   unplug <p>           DISCONNECTED
-  enum <p>             ENUMERATING
   auth <p>             AUTHORIZED keyboard
   burst <p>            QUARANTINED + KEYSTROKE_BURST (2)
   hid <p>              QUARANTINED + UNAUTHORIZED_HID (1)
+  pending <p>          PENDING_HID_CONFIRM (keyboard waiting for confirm_hid)
   threat <p> <code>    set threat_code 0–7 (quarantine if code≠0)
   isolate <p>          MANUAL_BLOCKED + threat 7 (like GUI Isolate)
   restore <p>          AUTHORIZED keyboard again
-  clear <p>            clear threat; stay isolated if blocked
+  clear <p>            clear threat latch only; stay cut off until restore
+  confirm <p>          approve pending HID (confirm_hid)
   reset                initial demo state (port0 flash, others empty)
   quit / exit          stop sim
 """.strip()
@@ -69,8 +70,6 @@ class Port:
     port: int
     state: str = "DISCONNECTED"
     threat_code: int = 0
-    vbus_mv: int = 0
-    current_ma: int = 0
     vid: str = "0x0000"
     pid: str = "0x0000"
     dev_class: str = "0x00"
@@ -98,8 +97,6 @@ def make_initial_state(*, script_enabled: bool = True) -> SimState:
             Port(
                 port=0,
                 state="AUTHORIZED",
-                vbus_mv=5020,
-                current_ma=42,
                 vid="0x0781",
                 pid="0x5583",
                 dev_class="0x00",
@@ -117,33 +114,24 @@ def advance_script(state: SimState) -> None:
         return
     elapsed_s = time.monotonic() - state.start
     p1 = state.ports[1]
-    if p1.manually_blocked or p1.state == "QUARANTINED":
+    if p1.manually_blocked or p1.state in (
+        "QUARANTINED",
+        "PENDING_HID_CONFIRM",
+        "AUTHORIZED",
+    ):
         return
     if state.script_stage == 0 and elapsed_s >= 5:
-        p1.state = "ENUMERATING"
-        p1.vbus_mv = 5020
-        p1.current_ma = 15
-        state.script_stage = 1
-    elif state.script_stage == 1 and elapsed_s >= 8:
-        p1.state = "AUTHORIZED"
+        p1.state = "PENDING_HID_CONFIRM"
+        p1.threat_code = 0
         p1.vid = "0x046D"
         p1.pid = "0xC31C"
         p1.dev_class = "0x00"
         p1.int_class = "0x03"
-        p1.current_ma = 55
-        state.script_stage = 2
-    elif state.script_stage == 2 and elapsed_s >= 15:
-        p1.state = "QUARANTINED"
-        p1.threat_code = 2  # KEYSTROKE_BURST
-        p1.vbus_mv = 0
-        p1.current_ma = 0
-        state.script_stage = 3
+        state.script_stage = 1
 
 
 def jitter(state: SimState) -> None:
-    for p in state.ports:
-        if p.vbus_mv > 0 and p.state in ("AUTHORIZED", "ENUMERATING"):
-            p.current_ma = max(0, p.current_ma + random.randint(-3, 3))
+    pass
 
 
 def telemetry_line(state: SimState) -> str:
@@ -154,8 +142,6 @@ def telemetry_line(state: SimState) -> str:
                 "port": p.port,
                 "state": p.state,
                 "threat_code": p.threat_code,
-                "vbus_mv": p.vbus_mv,
-                "current_ma": p.current_ma,
                 "vid": p.vid,
                 "pid": p.pid,
                 "dev_class": p.dev_class,
@@ -181,6 +167,8 @@ def apply_command(state: SimState, obj: dict) -> None:
         _restore(state.ports[port_id], port_id)
     elif cmd == "clear_fault":
         _clear(state.ports[port_id], port_id)
+    elif cmd == "confirm_hid":
+        _confirm_hid(state.ports[port_id], port_id)
     else:
         print(f"mcu_sim: unknown cmd {cmd!r}", flush=True)
 
@@ -189,8 +177,6 @@ def _isolate(p: Port, port_id: int) -> None:
     p.manually_blocked = True
     p.state = "MANUAL_BLOCKED"
     p.threat_code = 7
-    p.vbus_mv = 0
-    p.current_ma = 0
     print(f"mcu_sim: isolate port {port_id}", flush=True)
 
 
@@ -198,8 +184,6 @@ def _restore(p: Port, port_id: int) -> None:
     p.manually_blocked = False
     p.threat_code = 0
     p.state = "AUTHORIZED"
-    p.vbus_mv = 5020
-    p.current_ma = 30 + random.randint(0, 50)
     p.vid = "0x046D"
     p.pid = "0xC31C"
     p.dev_class = "0x00"
@@ -208,18 +192,42 @@ def _restore(p: Port, port_id: int) -> None:
 
 
 def _clear(p: Port, port_id: int) -> None:
+    if p.state == "PENDING_HID_CONFIRM":
+        print(
+            f"mcu_sim: clear_fault port {port_id} ignored — use confirm_hid",
+            flush=True,
+        )
+        return
     if p.threat_code == 0:
         print(f"mcu_sim: clear_fault port {port_id} (no fault)", flush=True)
         return
     prev = p.threat_code
     p.threat_code = 0
+    # Latch clear only — stay cut off until restore_port.
     if p.manually_blocked:
         p.state = "MANUAL_BLOCKED"
-    else:
-        p.state = "AUTHORIZED"
-        p.vbus_mv = 5020
-        p.current_ma = 20 + random.randint(0, 40)
     print(f"mcu_sim: clear_fault port {port_id} (was {prev})", flush=True)
+
+
+def _confirm_hid(p: Port, port_id: int) -> None:
+    if p.state != "PENDING_HID_CONFIRM":
+        print(f"mcu_sim: confirm_hid port {port_id} (not pending)", flush=True)
+        return
+    p.manually_blocked = False
+    p.threat_code = 0
+    p.state = "AUTHORIZED"
+    print(f"mcu_sim: confirm_hid port {port_id}", flush=True)
+
+
+def _pending_hid(p: Port, port_id: int) -> None:
+    p.manually_blocked = False
+    p.threat_code = 0
+    p.state = "PENDING_HID_CONFIRM"
+    p.vid = "0x046D"
+    p.pid = "0xC31C"
+    p.dev_class = "0x00"
+    p.int_class = "0x03"
+    print(f"mcu_sim: PENDING_HID_CONFIRM on port {port_id}", flush=True)
 
 
 def _parse_port(token: str) -> int | None:
@@ -239,14 +247,12 @@ def print_status(state: SimState) -> None:
         flush=True,
     )
     print(
-        f"{'p':>2}  {'state':<14}  {'threat':>6}  "
-        f"{'vbus':>5}  {'mA':>4}  vid:pid",
+        f"{'p':>2}  {'state':<14}  {'threat':>6}  vid:pid",
         flush=True,
     )
     for p in state.ports:
         print(
-            f"{p.port:>2}  {p.state:<14}  {p.threat_code:>6}  "
-            f"{p.vbus_mv:>5}  {p.current_ma:>4}  {p.vid}:{p.pid}",
+            f"{p.port:>2}  {p.state:<14}  {p.threat_code:>6}  {p.vid}:{p.pid}",
             flush=True,
         )
 
@@ -292,10 +298,11 @@ def run_repl_line(state: SimState, line: str) -> bool:
     if cmd in (
         "plug",
         "unplug",
-        "enum",
         "auth",
         "burst",
         "hid",
+        "pending",
+        "confirm",
         "isolate",
         "restore",
         "clear",
@@ -312,8 +319,6 @@ def run_repl_line(state: SimState, line: str) -> bool:
             p.manually_blocked = False
             p.state = "AUTHORIZED"
             p.threat_code = 0
-            p.vbus_mv = 5020
-            p.current_ma = 40
             p.vid = "0x0781"
             p.pid = "0x5583"
             p.dev_class = "0x00"
@@ -323,26 +328,15 @@ def run_repl_line(state: SimState, line: str) -> bool:
             p.manually_blocked = False
             p.state = "DISCONNECTED"
             p.threat_code = 0
-            p.vbus_mv = 0
-            p.current_ma = 0
             p.vid = p.pid = "0x0000"
             p.dev_class = p.int_class = "0x00"
             print(f"mcu_sim: unplug port {port_id}", flush=True)
-        elif cmd == "enum":
-            p.manually_blocked = False
-            p.state = "ENUMERATING"
-            p.threat_code = 0
-            p.vbus_mv = 5020
-            p.current_ma = 15
-            print(f"mcu_sim: enumerating port {port_id}", flush=True)
         elif cmd == "auth":
             _restore(p, port_id)
         elif cmd == "burst":
             p.manually_blocked = False
             p.state = "QUARANTINED"
             p.threat_code = 2
-            p.vbus_mv = 0
-            p.current_ma = 0
             p.vid = "0x046D"
             p.pid = "0xC31C"
             p.dev_class = "0x00"
@@ -352,13 +346,15 @@ def run_repl_line(state: SimState, line: str) -> bool:
             p.manually_blocked = False
             p.state = "QUARANTINED"
             p.threat_code = 1
-            p.vbus_mv = 0
-            p.current_ma = 0
             p.vid = "0x046D"
             p.pid = "0xC31C"
             p.dev_class = "0x00"
             p.int_class = "0x03"
             print(f"mcu_sim: UNAUTHORIZED_HID on port {port_id}", flush=True)
+        elif cmd == "pending":
+            _pending_hid(p, port_id)
+        elif cmd == "confirm":
+            _confirm_hid(p, port_id)
         elif cmd == "isolate":
             _isolate(p, port_id)
         elif cmd == "restore":
@@ -384,12 +380,9 @@ def run_repl_line(state: SimState, line: str) -> bool:
         if code == 0:
             if not p.manually_blocked and p.state != "DISCONNECTED":
                 p.state = "AUTHORIZED"
-                p.vbus_mv = 5020
         else:
             if p.state != "MANUAL_BLOCKED":
                 p.state = "QUARANTINED"
-                p.vbus_mv = 0
-                p.current_ma = 0
         print(f"mcu_sim: port {port_id} threat_code={code}", flush=True)
         return True
 

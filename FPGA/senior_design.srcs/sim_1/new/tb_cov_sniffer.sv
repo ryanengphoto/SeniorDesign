@@ -31,10 +31,12 @@ module tb_cov_sniffer;
     logic clear_fault = 1'b0;
     logic clear_fault_np = 1'b0;
     logic manual_kill = 1'b0;
-    logic approve = 1'b0;
-    logic approve_np = 1'b0;
-    logic [2:0] policy_mode = 3'd0;
-    logic [2:0] policy_mode_np = 3'd0;
+    logic approve_hid = 1'b0;
+    logic approve_hid_np = 1'b0;
+    // dut: storage-only (0x1 path). dut_no_policy: HID allow so class 0x03
+    // does not auto-isolate; suspicious-enum and timing tests use this one.
+    logic [2:0] policy_mode = `CTRL_POLICY_STORAGE_ONLY;
+    logic [2:0] policy_mode_np = `CTRL_POLICY_HID_ALLOW;
     logic kill;
     logic [3:0] threat_code;
     logic [3:0] threat_detail;
@@ -50,10 +52,9 @@ module tb_cov_sniffer;
 
     // Short HID / re-enum windows so branch arms for 0x2 / cooldown / storm
     // are reachable without multi-million-cycle waits (board defaults unchanged).
+    // Min interval must exceed one IN+DATA wire packet (~few k cycles) so
+    // consecutive HID reports still count as a "fast" streak.
     sniffer_block #(
-        .POLICY_STORAGE_ONLY      (1'b1),
-        // Min interval must exceed one IN+DATA wire packet (~few k cycles) so
-        // consecutive HID reports still count as a "fast" streak.
         .HID_MIN_INTERVAL_CYCLES_P(100_000),
         .HID_QUARANTINE_CYCLES_P  (20_000),
         .REENUM_WINDOW_CYCLES_P   (200_000),
@@ -65,8 +66,8 @@ module tb_cov_sniffer;
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
-        .approve           (approve),
         .policy_mode       (policy_mode),
+        .approve_hid       (approve_hid),
         .pkt_start         (pkt_start),
         .pkt_end           (pkt_end),
         .pid               (pid),
@@ -87,8 +88,7 @@ module tb_cov_sniffer;
         .threat_code       (threat_code)
     );
 
-    // Second instance: storage-only off so HID class does not assert threat 0x1
-    // (exercises POLICY_STORAGE_ONLY=0 side of sniffer_block assigns).
+    // Second instance: HID_ALLOW so HID class does not assert threat 0x1 / pending.
     logic kill_np;
     logic [3:0] threat_np;
     logic [7:0] intf_np;
@@ -103,7 +103,6 @@ module tb_cov_sniffer;
     logic [7:0] data_np;
 
     sniffer_block #(
-        .POLICY_STORAGE_ONLY      (1'b0),
         .HID_MIN_INTERVAL_CYCLES_P(100_000),
         .HID_QUARANTINE_CYCLES_P  (20_000),
         .REENUM_WINDOW_CYCLES_P   (200_000),
@@ -115,8 +114,8 @@ module tb_cov_sniffer;
         .dm                (dm),
         .clear_fault       (clear_fault_np),
         .manual_kill       (1'b0),
-        .approve           (approve_np),
         .policy_mode       (policy_mode_np),
+        .approve_hid       (approve_hid_np),
         .pkt_start         (ps_np_s),
         .pkt_end           (pe_np),
         .pid               (upid_np),
@@ -309,13 +308,13 @@ module tb_cov_sniffer;
         repeat (4) @(posedge clk_48m);
     endtask
 
-    // Clear + approve HID-allowed instance (avoids hold 0x3 re-arm).
+    // Clear + approve the HID-allow instance (releases confirm hold if armed).
     task automatic clear_and_approve_np();
-        approve_np = 1'b1;
+        approve_hid_np = 1'b1;
         clear_fault = 1'b1;
         clear_fault_np = 1'b1;
         @(posedge clk_48m);
-        approve_np = 1'b0;
+        approve_hid_np = 1'b0;
         clear_fault = 1'b0;
         clear_fault_np = 1'b0;
         repeat (4) @(posedge clk_48m);
@@ -324,7 +323,8 @@ module tb_cov_sniffer;
     // Hard reset: clears sticky first-intf / device_desc latches (clear_fault does not).
     task automatic pulse_rst();
         rst = 1'b1;
-        approve_np = 1'b0;
+        approve_hid = 1'b0;
+        approve_hid_np = 1'b0;
         clear_fault = 1'b0;
         clear_fault_np = 1'b0;
         repeat (4) @(posedge clk_48m);
@@ -836,8 +836,14 @@ module tb_cov_sniffer;
         tx_buf[13]=8'h01; tx_buf[14]=8'h03; tx_buf[15]=8'h01; tx_buf[16]=8'h01; tx_buf[17]=8'h00;
         send_data_bytes(PID_DATA1, 18, 1'b0);
         repeat (16) @(posedge clk_48m);
-        if (!kill_np || threat_np !== `THREAT_COOLDOWN_BURST) begin
-            $error("pre-approve hold expect 0x3 kill=%0b thr=%0h", kill_np, threat_np);
+        // HID_ALLOW does not latch a pre-approve threat. Switch to HID_CONFIRM
+        // and require the main pending hold (kill, threat still 0, pending bit).
+        policy_mode_np = `CTRL_POLICY_HID_CONFIRM;
+        repeat (4) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_NO_FAULT ||
+            !ps_np[`PORT_STATUS_HID_PENDING_BIT]) begin
+            $error("pre-approve hold expect pending kill=%0b thr=%0h st=%02h",
+                   kill_np, threat_np, ps_np);
             errors++;
         end
         clear_and_approve_np();
@@ -894,9 +900,9 @@ module tb_cov_sniffer;
         pulse_rst();
 
         // SPI policy_mode toggle edge (HID-allowed → storage-only)
-        policy_mode_np = `POLICY_STORAGE_ONLY;
+        policy_mode_np = `CTRL_POLICY_STORAGE_ONLY;
         repeat (4) @(posedge clk_48m);
-        policy_mode_np = `POLICY_HID_ALLOWED;
+        policy_mode_np = `CTRL_POLICY_HID_ALLOW;
 
         // Extra clear/manual edges for isolation toggle under sniffer
         manual_kill = 1'b1;

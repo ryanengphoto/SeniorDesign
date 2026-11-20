@@ -28,9 +28,10 @@ class EventLogStore {
     return rows.reversed.map(_fromRow).toList(growable: false);
   }
 
-  Future<void> append(SecurityEvent event) async {
+  /// Inserts [event] and returns the new row id.
+  Future<int> append(SecurityEvent event) async {
     await open();
-    await _db!.into(_db!.securityEventRows).insert(
+    return _db!.into(_db!.securityEventRows).insert(
           SecurityEventRowsCompanion.insert(
             at: event.at,
             port: event.port,
@@ -40,6 +41,17 @@ class EventLogStore {
             message: event.message,
           ),
         );
+  }
+
+  Future<void> deleteById(int id) async {
+    await open();
+    await (_db!.delete(_db!.securityEventRows)..where((t) => t.id.equals(id)))
+        .go();
+  }
+
+  Future<void> clearAll() async {
+    await open();
+    await _db!.delete(_db!.securityEventRows).go();
   }
 
   /// Keep only the newest [max] rows.
@@ -67,6 +79,7 @@ class EventLogStore {
 
   SecurityEvent _fromRow(SecurityEventRow row) {
     return SecurityEvent(
+      id: row.id,
       at: row.at,
       port: row.port,
       threatCode: row.threatCode,
