@@ -32,7 +32,11 @@ module usb_fs_rx (
   output [7:0] rx_data,
 
   // Most recent packet passes PID and CRC checks (clk domain)
-  output valid_packet
+  output valid_packet,
+
+  // Sticky for current packet: seven consecutive ones (USB bit-stuff error).
+  // Level in clk domain; cleared at next packet_start.
+  output bitstuff_error
 );
   wire [3:0] pid_48;
   reg [6:0] addr_48;
@@ -220,15 +224,27 @@ module usb_fs_rx (
   end
 
   reg [5:0] bitstuff_history = 0;
+  // After six 1s the next bit must be a stuffed 0. A 1 here is a stuff error
+  // (seven consecutive ones on the wire before destuff).
+  wire bitstuff_error_bit =
+      dvalid_raw && (bitstuff_history == 6'b111111) && (din == 1'b1);
+  reg  bitstuff_error_latched = 0;
 
   always @(posedge clk_48mhz) begin
-    if (reset || packet_end) begin
+    // Keep error sticky through packet_end so clk-domain pkt_end can sample it;
+    // clear on the next packet_start (or reset). Destuff history resets at EOP.
+    if (reset || packet_start) begin
+      bitstuff_history      <= 6'b000000;
+      bitstuff_error_latched <= 1'b0;
+    end else if (packet_end) begin
       bitstuff_history <= 6'b000000;
     end else begin
       if (dvalid_raw) begin
         bitstuff_history <= {bitstuff_history[4:0], din};
       end
-    end  
+      if (bitstuff_error_bit)
+        bitstuff_error_latched <= 1'b1;
+    end
   end
 
   wire dvalid = dvalid_raw && !(bitstuff_history == 6'b111111);
@@ -315,15 +331,15 @@ module usb_fs_rx (
 
 
   // TODO: need to check for data packet babble
-  // TODO: do i need to check for bitstuff error?
-  wire valid_packet_48 = pid_valid && (
-    (pkt_is_handshake) || 
+  wire valid_packet_48 = pid_valid && !bitstuff_error_latched && (
+    (pkt_is_handshake) ||
     (pkt_is_data && crc16_valid) ||
     (pkt_is_token && crc5_valid)
   );
-  
-  // valid is level, not a strobe
+
+  // valid / bitstuff_error are levels in the clk domain (sampled at pkt_end)
   dflip valid_buffer(clk, valid_packet_48, valid_packet);
+  dflip bitstuff_buffer(clk, bitstuff_error_latched, bitstuff_error);
 
   reg [11:0] token_payload = 0;
   wire token_payload_done = token_payload[0];

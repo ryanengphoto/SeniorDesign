@@ -11,9 +11,7 @@
 `include "defines.svh"
 
 module main_wrapper #(
-    // Sim: skip MMCM (drive clk_12m at 48 MHz in the TB). Board: leave 0.
     parameter bit SIM_CLK_BYPASS    = 1'b0,
-    // Cycles after lock before auto HID self-stim (~20 ms @ 48 MHz on board).
     parameter int BOOT_STIM_CYCLES  = 1_000_000
 ) (
     input  logic clk_12m,
@@ -71,7 +69,6 @@ module main_wrapper #(
         end
     endgenerate
 
-    // Async buttons → 48 MHz domain (btn high when pressed)
     always_ff @(posedge clk_48m) begin
         rst_btn_sync0 <= btn_rst;
         rst_btn_sync1 <= rst_btn_sync0;
@@ -85,8 +82,11 @@ module main_wrapper #(
     logic [`NUM_PORTS-1:0] dm;
     logic [`NUM_PORTS-1:0] clear_fault;
     logic [`NUM_PORTS-1:0] manual_kill;
+    logic [`NUM_PORTS-1:0] approve;
+    logic [2:0]            policy_mode [`NUM_PORTS-1:0];
     logic [`NUM_PORTS-1:0] kill;
-    logic [3:0]            threat_code [`NUM_PORTS-1:0];
+    logic [3:0]            threat_code   [`NUM_PORTS-1:0];
+    logic [3:0]            threat_detail [`NUM_PORTS-1:0];
     logic [7:0]            port_status [`NUM_PORTS-1:0];
     logic [15:0]           vid         [`NUM_PORTS-1:0];
     logic [15:0]           pid_dev     [`NUM_PORTS-1:0];
@@ -108,8 +108,8 @@ module main_wrapper #(
     logic [7:0] reg_wdata, reg_rdata;
     logic [`NUM_PORTS-1:0] clear_fault_spi;
     logic [`NUM_PORTS-1:0] manual_kill_spi;
+    logic [`NUM_PORTS-1:0] approve_spi;
 
-    // On-FPGA demo stimulus (no carrier required): drive port0 after lock.
     logic        stim_oe, stim_dp, stim_dn;
     logic        stim_busy, stim_done;
     logic        stim_start;
@@ -149,11 +149,11 @@ module main_wrapper #(
     assign dp[3:1] = {p3_dp_tap, p2_dp_tap, p1_dp_tap};
     assign dm[3:1] = {p3_dm_tap, p2_dm_tap, p1_dm_tap};
 
-    // btn_clear clears faults (OR with SPI clear)
+    // btn_clear: clear fault only (HID pending re-arms without SPI approve)
     assign clear_fault = clear_fault_spi | {`NUM_PORTS{clr_btn_sync1}};
     assign manual_kill = manual_kill_spi;
+    assign approve     = approve_spi;
 
-    // Isolate: mux enable active-low → high when killed; cut eFuse when killed
     assign p0_mux_en_n = kill[0];
     assign p1_mux_en_n = kill[1];
     assign p2_mux_en_n = kill[2];
@@ -164,8 +164,8 @@ module main_wrapper #(
     assign p3_efuse_en = ~kill[3];
 
     assign led   = kill;
-    assign led_r = ~(|kill);                 // red = any kill (active-low)
-    assign led_g = ~(stim_busy || stim_done); // green while demo stim runs/done
+    assign led_r = ~(|kill);
+    assign led_g = ~(stim_busy || stim_done);
     assign led_b = 1'b1;
 
     sniffer_wrapper u_sniffers (
@@ -175,8 +175,11 @@ module main_wrapper #(
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
+        .approve           (approve),
+        .policy_mode       (policy_mode),
         .kill              (kill),
         .threat_code       (threat_code),
+        .threat_detail     (threat_detail),
         .port_status       (port_status),
         .vid               (vid),
         .pid_dev           (pid_dev),
@@ -194,22 +197,25 @@ module main_wrapper #(
     );
 
     register_file u_regs (
-        .clk         (clk_48m),
-        .rst         (rst),
-        .reg_we      (reg_we),
-        .reg_waddr   (reg_waddr),
-        .reg_wdata   (reg_wdata),
-        .reg_raddr   (reg_raddr),
-        .reg_rdata   (reg_rdata),
-        .kill        (kill),
-        .threat_code (threat_code),
-        .port_status (port_status),
-        .vid         (vid),
-        .pid_dev     (pid_dev),
-        .dev_class   (dev_class),
-        .intf_class  (intf_class),
-        .clear_fault (clear_fault_spi),
-        .manual_kill (manual_kill_spi)
+        .clk           (clk_48m),
+        .rst           (rst),
+        .reg_we        (reg_we),
+        .reg_waddr     (reg_waddr),
+        .reg_wdata     (reg_wdata),
+        .reg_raddr     (reg_raddr),
+        .reg_rdata     (reg_rdata),
+        .kill          (kill),
+        .threat_code   (threat_code),
+        .threat_detail (threat_detail),
+        .port_status   (port_status),
+        .vid           (vid),
+        .pid_dev       (pid_dev),
+        .dev_class     (dev_class),
+        .intf_class    (intf_class),
+        .clear_fault   (clear_fault_spi),
+        .manual_kill   (manual_kill_spi),
+        .approve       (approve_spi),
+        .policy_mode   (policy_mode)
     );
 
     spi_slave u_spi (

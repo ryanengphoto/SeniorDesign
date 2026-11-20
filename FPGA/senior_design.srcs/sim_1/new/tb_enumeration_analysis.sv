@@ -29,17 +29,34 @@ module tb_enumeration_analysis;
     logic        device_desc_valid;
     logic        intf_class_valid;
     logic        attached;
+    logic        bus_reset = 1'b0;
+    logic [7:0]  intf_subclass, intf_protocol;
+    logic        config_walk_done, hid_keyboard_seen;
+    logic [3:0]  hid_iface_count, msc_iface_count;
+    logic        desc_overflow_pulse, composite_hid_msc_pulse, multi_hid_pulse;
+    logic        hid_keyboard_pulse, reenum_storm_pulse;
 
     enumeration_analysis dut (
         .clk(clk), .rst(rst),
         .pkt_start(pkt_start), .pkt_end(pkt_end),
         .pid(pid), .addr(addr), .endp(endp),
         .data_valid(data_valid), .data(data), .crc_ok(crc_ok),
+        .bus_reset(bus_reset),
         .vid(vid), .pid_dev(pid_dev),
         .dev_class(dev_class), .intf_class(intf_class),
+        .intf_subclass(intf_subclass), .intf_protocol(intf_protocol),
         .device_desc_valid(device_desc_valid),
         .intf_class_valid(intf_class_valid),
-        .attached(attached)
+        .config_walk_done(config_walk_done),
+        .hid_keyboard_seen(hid_keyboard_seen),
+        .hid_iface_count(hid_iface_count),
+        .msc_iface_count(msc_iface_count),
+        .attached(attached),
+        .desc_overflow_pulse(desc_overflow_pulse),
+        .composite_hid_msc_pulse(composite_hid_msc_pulse),
+        .multi_hid_pulse(multi_hid_pulse),
+        .hid_keyboard_pulse(hid_keyboard_pulse),
+        .reenum_storm_pulse(reenum_storm_pulse)
     );
 
     localparam [3:0] PID_SETUP = 4'b1101;

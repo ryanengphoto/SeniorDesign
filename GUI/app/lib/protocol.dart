@@ -69,12 +69,15 @@ enum ThreatCode {
 enum CommandType {
   isolatePort,
   restorePort,
-  clearFault;
+  clearFault,
+  /// Operator approve for HID-hold quarantine → MCU SPI `Pn_CONTROL[5]`.
+  approvePort;
 
   String get wireName => switch (this) {
         CommandType.isolatePort => 'isolate_port',
         CommandType.restorePort => 'restore_port',
         CommandType.clearFault => 'clear_fault',
+        CommandType.approvePort => 'approve_port',
       };
 
   static CommandType? fromWireName(String name) {

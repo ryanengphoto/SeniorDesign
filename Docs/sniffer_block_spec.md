@@ -19,8 +19,9 @@
 | --- | --- | --- |
 | Soft RX + framing front-end | `usb_packet_frontend` → TinyFPGA `usb_fs_rx` | Line → PID / bytes / CRC OK; CRC strip; `crc_fault` pulse |
 | Isolation latch | `isolation_controller` | Sticky `kill` + `threat_code` until clear / manual |
-| Wiring | `sniffer_block.sv` | Soft RX + `enumeration_analysis` + isolation. CRC fault → kill `0x5`. Storage-only policy: HID intf class `0x03` → kill `0x1`. |
-| Enumeration analysis | `enumeration_analysis.sv` | SETUP/GET_DESCRIPTOR FSM → device + first interface fields |
+| Wiring | `sniffer_block.sv` | Soft RX + `enumeration_analysis` + `hid_timing_filter` + policy mux + isolation. CRC → `0x5`; suspicious enum → `0x4`; storage-only HID → `0x1`; HID hold/cooldown → `0x3`; burst → `0x2`. Default policy HID-allowed. |
+| Enumeration analysis | `enumeration_analysis.sv` | Multi-iface walk; HID/MSC counts; overflow/composite/multi-HID/re-enum pulses |
+| HID timing | `hid_timing_filter.sv` | Post-approve key-down Δt + 2 s cooldown |
 
 Sim:
 - `tb_sniffer` — port0 CRC/kill smoke
@@ -32,6 +33,9 @@ Sim:
 - `tb_main_selfstim` — `main_wrapper` auto self-stim → LED kill → SPI telemetry → `btn_clear`
 - `tb_spi_manual_kill` — SPI `Pn_CONTROL[7]` operator isolate → threat `0x7` + SPI clear (all ports; no USB)
 - `tb_kill_manual_cross` — CRC kill then SPI manual overwrite to `0x7`; manual sticky ignores CRC; re-arm
+- `tb_hid_timing` — unit key-down burst / cooldown (short cycle params)
+- `tb_hid_pending_approve` — HID-allowed hold `0x3` → approve
+- `tb_suspicious_enum` — overflow / composite / multi-HID / re-enum storm
 - Procedural `*_sva` checkers (XSim; stripped under Verilator): `isolation_controller`, `sniffer_block`, `enumeration_analysis`, `usb_packet_frontend`, `sniffer_wrapper`, `register_file`, `spi_slave`, `main_wrapper` — see `FPGA/testing.md`.
 - Regression: `make -C FPGA sim-all` (`scripts/sim_all.tcl`); `COV=1` tries native XSim code coverage when supported; always writes `FPGA/cov/scenario_matrix.txt`
 
@@ -146,8 +150,10 @@ Shared vs per-port placement of “policy engine” can still be refined while k
 | 2026-11-10 | 7 | **C** — All endpoints in architectural scope |
 | 2026-11-10 | 8 | **B** — No FIFO in v1; **plan after sim working** |
 | 2026-11-10 | 9 | **D** — Enum/DPI: update status/telemetry only (no kill); regs must match paper software fields (and living GUI/firmware semantics) |
+| 2026-11-19 | 9b | **Enabled** — DPI/HID kills live: suspicious enum `0x4`, HID hold `0x3`, storage-only `0x1`, burst `0x2` |
 | 2026-11-10 | 10 | **C** — Device→host focus for policy |
 | 2026-11-10 | 11 | **B** — HID after DPI/enum telemetry |
+| 2026-11-19 | 11b | **Policy B** — bitstream HID-allowed; storage-only via SPI; GUI Approve (`Pn_CONTROL[5]`) before HID passthrough |
 | 2026-11-10 | 12 | **B** — Keystroke = HID report key-down semantics |
 | 2026-11-10 | 13–14 | Midterm policy path; **2026-11-10 later: kill on first** CRC/bit-stuff/malformed |
 | 2026-11-10 | 15 | **A** — Clear only via MCU / clear_fault |

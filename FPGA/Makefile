@@ -39,10 +39,14 @@ SIM_ALL_TOPS := \
 	tb_main_selfstim \
 	tb_spi_manual_kill \
 	tb_kill_manual_cross \
+	tb_hid_timing \
+	tb_hid_pending_approve \
+	tb_suspicious_enum \
+	tb_bit_stuff \
 	tb_cov_isolation \
 	tb_cov_sniffer
 
-.PHONY: help build synth sim sim-all cov-verilator gui clean check-vivado check-verilator
+.PHONY: help build synth sim sim-all cov-verilator iso-verilator gui clean check-vivado check-verilator
 
 .DEFAULT_GOAL := help
 
@@ -54,6 +58,7 @@ help:
 	@echo "  make sim        Behavioral sim (XSim); needs a testbench as sim top"
 	@echo "  make sim-all       Run full sniffer TB regression (scripts/sim_all.tcl)"
 	@echo "  make cov-verilator Line/branch/toggle coverage via Verilator (MSYS2)"
+	@echo "  make iso-verilator Isolation feature TBs via Verilator (no coverage)"
 	@echo "  make gui           Open $(PROJECT) in the Vivado GUI"
 	@echo "  make clean         Remove generated Vivado dirs/logs (keeps sources + .xpr)"
 	@echo ""
@@ -136,6 +141,14 @@ ifeq ($(OS),Windows_NT)
 	$(MSYS_BASH) -lc "cd $$(cygpath -u '$(CURDIR)') && bash scripts/run_verilator_cov.sh"
 else
 	bash scripts/run_verilator_cov.sh
+endif
+
+# Isolation feature regression under Verilator (hid hold/timing, suspicious enum, iso latch).
+iso-verilator: check-verilator
+ifeq ($(OS),Windows_NT)
+	$(MSYS_BASH) -lc "cd $$(cygpath -u '$(CURDIR)') && bash scripts/run_verilator_iso.sh"
+else
+	bash scripts/run_verilator_iso.sh
 endif
 
 gui: check-vivado

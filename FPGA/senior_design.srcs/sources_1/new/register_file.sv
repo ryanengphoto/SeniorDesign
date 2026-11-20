@@ -3,9 +3,9 @@
 //////////////////////////////////////////////////////////////////////////////////
 // Module: register_file
 // Purpose: MCU-visible status/control map (Docs/fabric_slop.md §5).
-//          Sniffer state is mirrored every cycle. Pn_CONTROL[6] pulses
-//          clear_fault; [7] drives manual_kill level.
-// Notes:   Bring-up uses one clock (same as sniffers). 48↔100 CDC later.
+//          Sniffer state is mirrored every cycle.
+//          Pn_CONTROL: [7] manual_kill, [6] clear_fault pulse,
+//                      [5] approve pulse (+clear), [2:0] policy mode.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -21,15 +21,18 @@ module register_file (
     output logic [7:0] reg_rdata,
 
     input  logic [`NUM_PORTS-1:0] kill,
-    input  logic [3:0]            threat_code [`NUM_PORTS-1:0],
-    input  logic [7:0]            port_status [`NUM_PORTS-1:0],
-    input  logic [15:0]           vid         [`NUM_PORTS-1:0],
-    input  logic [15:0]           pid_dev     [`NUM_PORTS-1:0],
-    input  logic [7:0]            dev_class   [`NUM_PORTS-1:0],
-    input  logic [7:0]            intf_class  [`NUM_PORTS-1:0],
+    input  logic [3:0]            threat_code   [`NUM_PORTS-1:0],
+    input  logic [3:0]            threat_detail [`NUM_PORTS-1:0],
+    input  logic [7:0]            port_status   [`NUM_PORTS-1:0],
+    input  logic [15:0]           vid           [`NUM_PORTS-1:0],
+    input  logic [15:0]           pid_dev       [`NUM_PORTS-1:0],
+    input  logic [7:0]            dev_class     [`NUM_PORTS-1:0],
+    input  logic [7:0]            intf_class    [`NUM_PORTS-1:0],
 
     output logic [`NUM_PORTS-1:0] clear_fault,
-    output logic [`NUM_PORTS-1:0] manual_kill
+    output logic [`NUM_PORTS-1:0] manual_kill,
+    output logic [`NUM_PORTS-1:0] approve,
+    output logic [2:0]            policy_mode [`NUM_PORTS-1:0]
 );
 
     logic [7:0] sys_control;
@@ -48,7 +51,7 @@ module register_file (
         pack_spi_status = 8'h00;
         pack_spi_status[7]   = kill_i;
         pack_spi_status[6]   = mid_status[`PORT_STATUS_ATTACHED_BIT];
-        pack_spi_status[5]   = 1'b0;
+        pack_spi_status[5]   = mid_status[`PORT_STATUS_PENDING_BIT];
         pack_spi_status[3:0] = threat_i;
     endfunction
 
@@ -58,10 +61,12 @@ module register_file (
         if (rst) begin
             sys_control <= 8'h00;
             clear_fault <= {`NUM_PORTS{1'b0}};
+            approve     <= {`NUM_PORTS{1'b0}};
             for (i = 0; i < `NUM_PORTS; i = i + 1)
-                p_control[i] <= 8'h00;
+                p_control[i] <= 8'h00;  // policy HID-allowed default
         end else begin
             clear_fault <= {`NUM_PORTS{1'b0}};
+            approve     <= {`NUM_PORTS{1'b0}};
 
             if (reg_we) begin
                 if (reg_waddr == `ADDR_SYS_CONTROL)
@@ -70,17 +75,26 @@ module register_file (
                 // Pn_CONTROL at 0x10 / 0x20 / 0x30 / 0x40
                 if (w_is_port && reg_waddr[3:0] == 4'h0) begin
                     p_control[w_port] <= reg_wdata;
-                    if (reg_wdata[6])
+                    if (reg_wdata[`PCTL_CLEAR_FAULT_BIT])
                         clear_fault[w_port] <= 1'b1;
+                    if (reg_wdata[`PCTL_APPROVE_BIT]) begin
+                        approve[w_port]     <= 1'b1;
+                        clear_fault[w_port] <= 1'b1;  // approve releases hold
+                    end
                 end
             end
         end
     end
 
-    assign manual_kill[0] = p_control[0][7];
-    assign manual_kill[1] = p_control[1][7];
-    assign manual_kill[2] = p_control[2][7];
-    assign manual_kill[3] = p_control[3][7];
+    assign manual_kill[0] = p_control[0][`PCTL_MANUAL_KILL_BIT];
+    assign manual_kill[1] = p_control[1][`PCTL_MANUAL_KILL_BIT];
+    assign manual_kill[2] = p_control[2][`PCTL_MANUAL_KILL_BIT];
+    assign manual_kill[3] = p_control[3][`PCTL_MANUAL_KILL_BIT];
+
+    assign policy_mode[0] = p_control[0][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
+    assign policy_mode[1] = p_control[1][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
+    assign policy_mode[2] = p_control[2][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
+    assign policy_mode[3] = p_control[3][`PCTL_POLICY_HI:`PCTL_POLICY_LO];
 
     always_comb begin
         reg_rdata = 8'h00;
@@ -99,6 +113,7 @@ module register_file (
                 4'h5: reg_rdata = pid_dev[r_port][7:0];
                 4'h6: reg_rdata = dev_class[r_port];
                 4'h7: reg_rdata = intf_class[r_port];
+                4'h8: reg_rdata = {4'h0, threat_detail[r_port]};
                 default: reg_rdata = 8'h00;
             endcase
         end
@@ -107,23 +122,25 @@ module register_file (
 `ifndef VERILATOR
     // synthesis translate_off
     register_file_sva u_rf_sva (
-        .clk         (clk),
-        .rst         (rst),
-        .reg_we      (reg_we),
-        .reg_waddr   (reg_waddr),
-        .reg_wdata   (reg_wdata),
-        .reg_raddr   (reg_raddr),
-        .reg_rdata   (reg_rdata),
-        .kill        (kill),
-        .threat_code (threat_code),
-        .port_status (port_status),
-        .vid         (vid),
-        .pid_dev     (pid_dev),
-        .dev_class   (dev_class),
-        .intf_class  (intf_class),
-        .clear_fault (clear_fault),
-        .manual_kill (manual_kill),
-        .p_control   (p_control)
+        .clk           (clk),
+        .rst           (rst),
+        .reg_we        (reg_we),
+        .reg_waddr     (reg_waddr),
+        .reg_wdata     (reg_wdata),
+        .reg_raddr     (reg_raddr),
+        .reg_rdata     (reg_rdata),
+        .kill          (kill),
+        .threat_code   (threat_code),
+        .threat_detail (threat_detail),
+        .port_status   (port_status),
+        .vid           (vid),
+        .pid_dev       (pid_dev),
+        .dev_class     (dev_class),
+        .intf_class    (intf_class),
+        .clear_fault   (clear_fault),
+        .manual_kill   (manual_kill),
+        .approve       (approve),
+        .p_control     (p_control)
     );
     // synthesis translate_on
 `endif

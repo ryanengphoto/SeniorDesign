@@ -145,10 +145,11 @@ module tb_main_selfstim;
             errors++;
         end
 
-        // SPI telemetry through board top
+        // SPI telemetry: HID-allowed default → HID hold threat 0x3 + pending bit
+        // pack: [7]=kill [6]=att [5]=pending [3:0]=threat → 0xE3
         spi_read(`ADDR_P0_STATUS, rd);
-        if (rd !== 8'hC1) begin
-            $error("P0_STATUS=%02h expect C1", rd); errors++;
+        if (rd !== 8'hE3) begin
+            $error("P0_STATUS=%02h expect E3 (HID hold)", rd); errors++;
         end else
             $display("SPI P0_STATUS=%02h OK", rd);
 
@@ -170,23 +171,23 @@ module tb_main_selfstim;
         end else
             $display("SPI INTCLASS=%02h OK", rd);
 
-        // btn_clear releases kill
-        btn_clear = 1'b1;
-        repeat (32) @(posedge dut.clk_48m);
-        btn_clear = 1'b0;
+        // SPI Approve (CONTROL[5]) releases HID hold and sets approved
+        spi_write(`ADDR_P0_CONTROL, 8'h20);
+        repeat (16) @(posedge dut.clk_48m);
+        spi_write(`ADDR_P0_CONTROL, 8'h00);
         repeat (16) @(posedge dut.clk_48m);
 
         if (led[0] !== 1'b0) begin
-            $error("led[0] still set after btn_clear");
+            $error("led[0] still set after SPI approve");
             errors++;
         end else
-            $display("btn_clear cleared kill OK");
+            $display("SPI approve cleared kill OK");
 
         spi_read(`ADDR_P0_STATUS, rd);
         if (rd[7] || rd[3:0] !== `THREAT_NO_FAULT) begin
-            $error("P0_STATUS after clear=%02h", rd); errors++;
+            $error("P0_STATUS after approve=%02h", rd); errors++;
         end else
-            $display("SPI P0_STATUS after clear=%02h OK", rd);
+            $display("SPI P0_STATUS after approve=%02h OK", rd);
 
         // Telemetry retained
         spi_read(`ADDR_P0_VID_LOW, rd);

@@ -1,7 +1,7 @@
 # FPGA RTL & Fabric Requirements Specification
 **Project:** Hardware-Isolated USB Security Gateway  
 **Target Device:** Xilinx Spartan-7 XC7S25-CSGA225 (Digilent Cmod S7-25)  
-**Document Version:** 1.2  
+**Document Version:** 1.3  
 **Target Toolchain:** AMD/Xilinx Vivado ML Standard (project historically 2017.4 → 2018.2; newer OK if compatible)  
 **Primary Language:** SystemVerilog / Verilog-2001  
 
@@ -27,11 +27,14 @@ On each clock, per-port sniffers inspect traffic, update **stateful status regis
 | --- | --- |
 | `main_wrapper` | Top: clocking, sniffer wrapper, register file, SPI slave |
 | Packet sniffer wrapper | Instantiates **identical** `sniffer_block` × 4; aggregates threat/kill/status into the register file every cycle |
-| `sniffer_block` | Per-port PHY/demod, framing, DPI / timing filters, local kill request |
+| `sniffer_block` | Per-port PHY/demod, framing, enum DPI, HID timing filter, policy mux, local kill request |
+| `enumeration_analysis` | EP0 descriptor walk; HID/MSC counts; suspicious-enum pulses |
+| `hid_timing_filter` | Post-approve key-down Δt + cooldown window |
+| `isolation_controller` | Sticky kill + threat latch until MCU clear/approve |
 | `register_file` | Stateful status + control visible to the MCU over SPI |
 | SPI slave | Mode 0 slave; serves MCU read/write transactions |
 
-Example behavior: a HID keystroke-rate filter uses a time-delta counter; exceeding the human typing bound (50 chars/s → ≈ 20 ms minimum interval; see threat table) isolates that channel and sets the corresponding status bits (e.g. overspeed / `KEYSTROKE_BURST`).
+**Default policy:** HID-allowed. On HID interface detect, fabric **auto-quarantines** (opens mux, threat `0x3` HID hold) until MCU/GUI **Approve** (`Pn_CONTROL[5]`). Storage-only is SPI opt-in (`Pn_CONTROL[2:0]=1`) and kills HID as `UNAUTHORIZED_HID` (`0x1`). Keystroke injection after approve trips `KEYSTROKE_BURST` (`0x2`) / cooldown (`0x3`).
 
 ### Primary operational domains
 * **Clock management:** From the Cmod S7 12 MHz oscillator; **48 MHz** is the sniffer oversampling clock (USB FS 4×).
@@ -92,7 +95,7 @@ The design uses three internal clock domains derived from a single `MMCME2_BASE`
 * Decodes Single-Ended Zero (SE0), J-State, and K-State to detect End-of-Packet (EOP) and Bus Reset conditions.
 * Converts NRZI line encoding to standard binary.
 * Strips stuffed zero bits following runs of six consecutive ones.
-* Flags a `BIT_STUFF_ERROR` if seven consecutive ones appear without a transition.
+* Flags a `BIT_STUFF_ERROR` (`0x6`) if seven consecutive ones appear (stuff bit was 1); `usb_packet_frontend` pulses `bit_stuff_fault` at `pkt_end` (priority over CRC `0x5`).
 
 ### 4.2. Packet Framing & CRC Validation (`usb_packet_checker.sv`)
 * Locks onto the 8-bit USB SYNC field (`0x80`).
@@ -100,23 +103,32 @@ The design uses three internal clock domains derived from a single `MMCME2_BASE`
 * Computes running CRC-5 checks on token address/endpoint fields using the polynomial $G(X) = X^5 + X^2 + 1$.
 * Computes running CRC-16 checks on data packet payloads using the polynomial $G(X) = X^{16} + X^{15} + X^2 + 1$.
 
-### 4.3. Deep Packet Inspection Engine (`usb_dpi_engine.sv`)
+### 4.3. Enumeration analysis / DPI (`enumeration_analysis.sv`)
 * Monitors Endpoint 0 control transfers and intercepts `GET_DESCRIPTOR` setup transactions.
 * Parses Device Descriptors to extract `idVendor`, `idProduct`, and `bDeviceClass`.
-* Parses Interface Descriptors to extract `bInterfaceClass`, `bInterfaceSubClass`, and `bInterfaceProtocol`.
-* Flags configuration descriptors with `wTotalLength` values exceeding 512 bytes.
-* Triggers an immediate hardware kill if an unauthorized HID class (`0x03`) appears on a port configured for storage only.
+* Walks **all** Interface Descriptors for `bInterfaceClass` / SubClass / Protocol; counts HID and MSC interfaces.
+* Suspicious-enum kills (threat `0x4`, detail in `Pn_THREAT_DETAIL`):
+  * `wTotalLength > 512` or host wLength > 512 → detail `0x1`
+  * Composite HID + MSC → detail `0x2`
+  * More than one HID interface → detail `0x3`
+  * Rapid bus-reset / re-enumeration storm (≥3 resets in 100 ms) → detail `0x4`
+* Storage-only policy: **any** HID interface after config walk → `UNAUTHORIZED_HID` (`0x1`), even if HID is not the first interface (e.g. vendor-then-HID). HID+MSC still takes suspicious `0x4` (composite) with higher mux priority.
+* HID-allowed policy: any HID → sticky HID hold (`0x3`) until operator Approve.
+* Bus reset clears enum latches / `attached` (and therefore sticky `approved`) so a new device starts clean.
+* `clear_fault` alone releases kill; HID-hold and suspicious-enum stickies **re-arm** until Approve (HID) or bus reset (suspicious).
 
 ### 4.4. HID Keystroke Timing Filter (`hid_timing_filter.sv`)
-* Uses a 24-bit down-counter running at 48 MHz to measure the time delta ($\Delta t$) between consecutive HID input reports.
-* Flags a `KEYSTROKE_BURST` / overspeed violation if consecutive keystrokes arrive faster than the human bound (**50 chars/s** → $\Delta t < 20\text{ ms}$; prior 25 ms draft remains a conservative alternate threshold if documented in defines).
-* Enforces a 2.0-second post-enumeration quarantine window to detect automated scripts that fire immediately upon connection.
-* On trip: assert channel kill and update status (e.g. overspeed bit / threat code `0x2`).
+* Armed after operator **Approve** on an HID-allowed port.
+* Detects boot-keyboard **key-downs** (new nonzero keycodes in 8-byte IN reports on endp ≠ 0), not raw packet rate.
+* Arms report capture on `pkt_start` when the latched `endp` (from the prior token’s `pkt_end`) is nonzero; confirms DATA PID at `pkt_end` (frontend updates `pid`/`endp` at packet end, not start).
+* Flags `KEYSTROKE_BURST` (`0x2`) if consecutive key-downs arrive faster than the human bound (**50 chars/s** → $\Delta t < 20\text{ ms}$) for $>3$ reports.
+* Enforces a 2.0-second post-enumeration cooldown: any key-down in-window → `COOLDOWN_BURST` (`0x3`) and **isolate** (parallel-tap fabric cannot drop packets in-line).
+* Pre-approve HID traffic is blocked by the HID-hold quarantine (also coded `0x3`).
 
 ### 4.5. Fast-Path Isolation Controller (`isolation_controller.sv`)
 * Routes threat trigger signals with minimal logic to the physical control pins (MUX enable / eFuse enable).
 * Meets system shutoff targets: **≤ 100 ns** preferred, **≤ 1 µs** hard upper bound; board analog switch turn-off budget **≤ 120 ns** ([`Docs/d_c_txt.md`](d_c_txt.md)).
-* Latches the isolation state in hardware until cleared by an authenticated write from the MCU.
+* Latches the isolation state in hardware until cleared by MCU `clear_fault` or **Approve** (Approve also sets sticky `approved` in the sniffer).
 
 ---
 
@@ -132,17 +144,20 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | `0x00` | `SYS_STATUS` | RO | `0x00` | `[7:4]` Global Error Code, `[3:0]` Per-port kill sticky (ports 3..0) |
 | `0x01` | `SYS_CONTROL` | RW | `0x00` | `[7]` Global Soft Reset, `[3:0]` Force Global MUX Enable Override |
 | `0x02` | — | — | — | Reserved (unused; do not implement) |
-| `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill, `[6]` Clear Fault, `[2:0]` Policy Mode |
-| `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` Configured, `[3:0]` Threat Code |
+| `0x10` | `P0_CONTROL` | RW | `0x00` | `[7]` Manual Kill, `[6]` Clear Fault pulse, `[5]` **Approve HID** pulse (also clears kill), `[2:0]` Policy Mode (`0`=HID-allowed, `1`=storage-only) |
+| `0x11` | `P0_STATUS` | RO | `0x00` | `[7]` Isolated, `[6]` Attached, `[5]` HID pending approve, `[3:0]` Threat Code |
 | `0x12` | `P0_VID_HIGH` | RO | `0x00` | Parsed Vendor ID High Byte (`VID[15:8]`) |
 | `0x13` | `P0_VID_LOW` | RO | `0x00` | Parsed Vendor ID Low Byte (`VID[7:0]`) |
 | `0x14` | `P0_PID_HIGH` | RO | `0x00` | Parsed Product ID High Byte (`PID[15:8]`) |
 | `0x15` | `P0_PID_LOW` | RO | `0x00` | Parsed Product ID Low Byte (`PID[7:0]`) |
 | `0x16` | `P0_DEV_CLASS` | RO | `0x00` | Parsed `bDeviceClass` byte |
 | `0x17` | `P0_INT_CLASS` | RO | `0x00` | Parsed `bInterfaceClass` byte |
-| `0x20 – 0x27` | `P1_REGS[0:7]` | — | — | Channel 1 Mirror Registers (Offsets match `0x10–0x17`) |
-| `0x30 – 0x37` | `P2_REGS[0:7]` | — | — | Channel 2 Mirror Registers (Offsets match `0x10–0x17`) |
-| `0x40 – 0x47` | `P3_REGS[0:7]` | — | — | Channel 3 Mirror Registers (Offsets match `0x10–0x17`) |
+| `0x18` | `P0_THREAT_DETAIL` | RO | `0x00` | `[3:0]` Detail when threat=`0x4`: `0` none, `1` overflow, `2` composite HID+MSC, `3` multi-HID, `4` re-enum storm |
+| `0x20 – 0x28` | `P1_REGS` | — | — | Channel 1 mirror (`0x20–0x28`) |
+| `0x30 – 0x38` | `P2_REGS` | — | — | Channel 2 mirror |
+| `0x40 – 0x48` | `P3_REGS` | — | — | Channel 3 mirror |
+
+**GUI/MCU contract:** host `approve_port` (or equivalent) → MCU SPI write `Pn_CONTROL[5]`. `clear_fault` alone releases kill but does **not** set `approved`; HID-hold re-arms if HID is still present.
 
 ---
 
@@ -151,11 +166,11 @@ The FPGA implements a 16-bit **SPI slave** (MCU master) operating up to 25 MHz (
 | Threat Code (`4'h_`) | Threat Name | Trigger Condition | Hardware Action |
 |:---:|---|---|---|
 | `0x0` | `NO_FAULT` | Normal operation. | Normal passthrough (MUX closed). |
-| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage port. | Open MUX (<20 ns), cut eFuse, update status. |
-| `0x2` | `KEYSTROKE_BURST` | Keystroke interval $\Delta t < 20\text{ ms}$ (50 chars/s bound) for $>3$ reports. | Open MUX (≤100 ns target), update status. |
-| `0x3` | `COOLDOWN_BURST` | Keystroke during 2.0s post-enumeration window. | Drop packets, update status. |
-| `0x4` | `DESCRIPTOR_OVERFLOW` | `wTotalLength > 512` or length mismatch. | Isolate port, update status. |
-| `0x5` | `CRC_TOKEN_FAULT` | Token CRC-5 or data CRC-16 failure. | Log error, isolate on repeat. |
+| `0x1` | `UNAUTHORIZED_HID` | `bInterfaceClass == 0x03` on storage-only port. | Open MUX, cut eFuse, update status. |
+| `0x2` | `KEYSTROKE_BURST` | Key-down interval $\Delta t < 20\text{ ms}$ for $>3$ reports (post-approve). | Open MUX (≤100 ns target), update status. |
+| `0x3` | `COOLDOWN_BURST` | HID hold (pre-approve) **or** key-down during 2.0s post-enum cooldown (post-approve). | Isolate (open MUX), update status. |
+| `0x4` | `DESCRIPTOR_OVERFLOW` | Suspicious enum family (overflow / composite HID+MSC / multi-HID / re-enum storm). See `Pn_THREAT_DETAIL`. | Isolate port, update status. |
+| `0x5` | `CRC_TOKEN_FAULT` | Token CRC-5 or data CRC-16 failure. | Isolate on first fault (v1). |
 | `0x6` | `BIT_STUFF_ERROR` | Seven consecutive ones with no transition. | Reset port receiver, isolate. |
 | `0x7` | `MANUAL_HOST_KILL` | User command via GUI. | Open MUX, cut eFuse. |
 

@@ -27,6 +27,10 @@ set tops [list \
   tb_main_selfstim \
   tb_spi_manual_kill \
   tb_kill_manual_cross \
+  tb_hid_timing \
+  tb_hid_pending_approve \
+  tb_suspicious_enum \
+  tb_bit_stuff \
   tb_cov_isolation \
   tb_cov_sniffer \
 ]

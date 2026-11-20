@@ -2,9 +2,9 @@
 
 //////////////////////////////////////////////////////////////////////////////////
 // Module: usb_packet_frontend_sva
-// Purpose: CRC-fault / in-packet monitors for usb_packet_frontend.
-//          crc_fault is a registered pulse aligned to the pkt_end cycle in RTL
-//          NBA terms — observe with a 1-cycle delayed pkt_end sample.
+// Purpose: CRC / bit-stuff fault monitors for usb_packet_frontend.
+//          Fault pulses are registered on the pkt_end cycle — observe with a
+//          1-cycle delayed pkt_end sample.
 //////////////////////////////////////////////////////////////////////////////////
 
 module usb_packet_frontend_sva (
@@ -14,7 +14,8 @@ module usb_packet_frontend_sva (
     input logic pkt_end,
     input logic data_valid,
     input logic crc_ok,
-    input logic crc_fault
+    input logic crc_fault,
+    input logic bit_stuff_fault
 );
 
     logic sample_valid;
@@ -30,9 +31,11 @@ module usb_packet_frontend_sva (
             crc_ok_d     <= 1'b1;
         end else begin
             if (sample_valid) begin
-                // crc_fault NBA from prior edge when pkt_end was high
-                if (crc_fault && !pkt_end_d)
-                    $error("usb_packet_frontend SVA: crc_fault without prior pkt_end");
+                if ((crc_fault || bit_stuff_fault) && !pkt_end_d)
+                    $error("usb_packet_frontend SVA: fault without prior pkt_end");
+
+                if (crc_fault && bit_stuff_fault)
+                    $error("usb_packet_frontend SVA: crc and bit-stuff both pulsed");
 
                 if (crc_fault && crc_ok_d)
                     $error("usb_packet_frontend SVA: crc_fault after crc_ok packet");

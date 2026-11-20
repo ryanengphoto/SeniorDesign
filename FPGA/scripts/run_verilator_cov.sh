@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Build + run Verilator coverage TBs; write annotated sources + lcov info.
 # Usage (from FPGA/): bash scripts/run_verilator_cov.sh
-# Or: make cov-verilator
+# Or: make cov-verilato
 set -euo pipefail
 
 export PATH="/ucrt64/bin:/usr/bin:$PATH"
+# MSYS2: perl wrapper's `exec verilator_bin` needs the .exe suffix on Windows.
+export VERILATOR_BIN="${VERILATOR_BIN:-verilator_bin.exe}"
+# Required so std library / includes resolve under MSYS path mapping.
+export VERILATOR_ROOT="${VERILATOR_ROOT:-/ucrt64/share/verilator}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/senior_design.srcs/sources_1/new"
@@ -84,22 +88,45 @@ run_one() {
   echo "coverage data → $dat"
 }
 
+PHY=(
+  "$SRC/usb_reset_det.v"
+  "$SRC/usb_packet_frontend.sv"
+  "$SRC/usb_fs_rx.v"
+  "$SRC/usb_fs_tx.v"
+  "$SRC/strobe.v"
+)
+SNIFF=(
+  "$SRC/sniffer_block.sv"
+  "$SRC/isolation_controller.sv"
+  "$SRC/enumeration_analysis.sv"
+  "$SRC/hid_timing_filter.sv"
+)
+
 # Cov TBs live in sim_1 (shared with XSim so isolation_controller_sva runs there).
 # --- isolation_controller (tight, high branch focus) ---
 run_one tb_cov_isolation \
   "$SIM/tb_cov_isolation.sv" \
   "$SRC/isolation_controller.sv"
 
-# --- sniffer_block + TinyFPGA RX/TX path ---
+# --- sniffer_block + TinyFPGA RX/TX path (+ suspicious / reset / policy) ---
 run_one tb_cov_sniffer \
   "$SIM/tb_cov_sniffer.sv" \
-  "$SRC/sniffer_block.sv" \
-  "$SRC/isolation_controller.sv" \
-  "$SRC/enumeration_analysis.sv" \
-  "$SRC/usb_packet_frontend.sv" \
-  "$SRC/usb_fs_rx.v" \
-  "$SRC/usb_fs_tx.v" \
-  "$SRC/strobe.v"
+  "${SNIFF[@]}" \
+  "${PHY[@]}"
+
+# --- feature TBs merged for module coverage (same DUT sources) ---
+run_one tb_hid_timing \
+  "$SIM/tb_hid_timing.sv" \
+  "$SRC/hid_timing_filter.sv"
+
+run_one tb_suspicious_enum \
+  "$SIM/tb_suspicious_enum.sv" \
+  "$SRC/enumeration_analysis.sv"
+
+run_one tb_bit_stuff \
+  "$SIM/tb_bit_stuff.sv" \
+  "${SNIFF[@]}" \
+  "${PHY[@]}"
 
 echo ""
 echo "==== merge + annotate ===="
@@ -119,14 +146,17 @@ COV_LOG=$(perl "$(which verilator_coverage)" \
   --annotate "$ANN" \
   --annotate-all \
   "$OUT"/tb_cov_isolation.dat \
-  "$OUT"/tb_cov_sniffer.dat 2>&1)
+  "$OUT"/tb_cov_sniffer.dat \
+  "$OUT"/tb_hid_timing.dat \
+  "$OUT"/tb_suspicious_enum.dat \
+  "$OUT"/tb_bit_stuff.dat 2>&1)
 COV_RC=$?
 set -e
 printf '%s\n' "$COV_LOG"
 
 {
   echo "Verilator coverage summary"
-  echo "TBs: tb_cov_isolation PASS, tb_cov_sniffer PASS (see run log)"
+  echo "TBs: tb_cov_isolation, tb_cov_sniffer, tb_hid_timing, tb_suspicious_enum, tb_bit_stuff"
   echo "$COV_LOG" | sed -n '/Total coverage/p'
   echo ""
   echo "Annotated sources: cov/verilator/annotate/  (lines with %00 are uncovered)"

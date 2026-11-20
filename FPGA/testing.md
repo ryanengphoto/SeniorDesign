@@ -31,7 +31,8 @@ Pass/fail: each TB must `$display("tb_…: PASS")` (or `FAIL`). `scripts/sim.tcl
 | `make help` | List targets + overrides | — |
 | `make sim` | One behavioral XSim run | `scripts/sim.tcl` |
 | `make sim-all` | Full sniffer TB regression (one Vivado process) | `scripts/sim_all.tcl` |
-| `make cov-verilator` | Line/branch/toggle coverage (Verilator sidecar) | `scripts/run_verilator_cov.sh` |
+| `make cov-verilator` | Line/branch/toggle coverage (Verilator sidecar; merges `tb_cov_*` + hid/suspicious/bit-stuff feature TBs) | `scripts/run_verilator_cov.sh` |
+| `make iso-verilator` | Isolation feature TBs (Verilator, no cov) | `scripts/run_verilator_iso.sh` |
 | `make synth` | Synthesis only | `scripts/synth.tcl` |
 | `make build` | Synth + implement + bitstream | `scripts/build.tcl` |
 | `make gui` | Open `senior_design.xpr` | — |
@@ -78,6 +79,18 @@ Board bitstream leaves defaults. TBs that instantiate the board top override the
 
 Used by `tb_main_selfstim` (bypass + short boot delay).
 
+### RTL sim knobs (`sniffer_block` parameters)
+
+Board / `sniffer_wrapper` leave defaults (real HID / re-enum timing from `defines.svh`). Coverage TBs shorten them so burst / cooldown / storm arms finish quickly.
+
+| Parameter | Meaning | Board default |
+| --- | --- | --- |
+| `POLICY_STORAGE_ONLY` | Compile-time storage-only policy | `0` (HID-allowed) |
+| `HID_MIN_INTERVAL_CYCLES_P` | Min key-down Δt before burst streak | `HID_MIN_INTERVAL_CYCLES` (20 ms) |
+| `HID_QUARANTINE_CYCLES_P` | Post-enum key-down cooldown window | `HID_QUARANTINE_CYCLES` (2.0 s) |
+| `REENUM_WINDOW_CYCLES_P` | Bus-reset storm window | `REENUM_WINDOW_CYCLES` (100 ms) |
+| `REENUM_STORM_THRESH_P` | Resets in window → storm pulse | `REENUM_STORM_THRESHOLD` (3) |
+
 ---
 
 ## Testbench inventory
@@ -99,6 +112,9 @@ Must match `SIM_ALL_TOPS` in `Makefile` and `tops` in `scripts/sim_all.tcl`.
 | `tb_main_selfstim` | `main_wrapper` auto self-stim → LED kill → SPI telemetry → `btn_clear` |
 | `tb_spi_manual_kill` | SPI `Pn_CONTROL[7]` → threat `0x7` + clear (all ports; no USB) |
 | `tb_kill_manual_cross` | CRC↔SPI-manual: overwrite to `0x7`, sticky ignore of CRC, re-arm |
+| `tb_hid_timing` | Unit: key-down burst `0x2` + cooldown pulse (short cycle params) |
+| `tb_hid_pending_approve` | HID-allowed → hold `0x3` → clear re-arms → approve releases |
+| `tb_suspicious_enum` | Overflow / composite HID+MSC / multi-HID / re-enum storm pulses |
 | `tb_cov_isolation` | Directed isolation paths + threat sweep; XSim runs `isolation_controller_sva` |
 | `tb_cov_sniffer` | Broad sniffer/enum/HID/CRC stimulus for coverage; XSim runs SVA on both DUT instances |
 
@@ -121,7 +137,7 @@ All are procedural (XSim 2018.2 ignores concurrent `assert property` / XSIM 43-4
 
 ### Assertions — depth and scope
 
-DUT-attached checkers cover Priority-1/2 fabric contracts continuously on XSim. Still **not** property-checked (TB scoreboards only): HID timing `0x2`/`0x3`, descriptor overflow `0x4`, bit-stuff `0x6`, deep TinyFPGA line-state FSM.
+DUT-attached checkers cover Priority-1/2 fabric contracts continuously on XSim. Still **not** property-checked (TB scoreboards only): HID timing `0x2`/`0x3`, descriptor overflow `0x4`, deep TinyFPGA line-state FSM. Bit-stuff `0x6` is covered by `tb_bit_stuff` (Verilator/`sim-all`).
 
 ### Common TB patterns
 
@@ -148,7 +164,8 @@ Acceptance remains **`make sim-all` (XSim)** — that is where `isolation_contro
 
 | Piece | Path / note |
 | --- | --- |
-| Tool | MSYS2 ucrt64 **Verilator 5.040** (`pacman -S mingw-w64-ucrt-x86_64-verilator`) |
+| Tool | MSYS2 ucrt64 **Verilator ≥5.040** (`pacman -S mingw-w64-ucrt-x86_64-verilator`; this machine: 5.054) |
+| PATH | User PATH: `C:\msys64\ucrt64\bin` + `C:\msys64\usr\bin`. User env: `VERILATOR_BIN=verilator_bin.exe`, `VERILATOR_ROOT=C:\msys64\ucrt64\share\verilator` (script also exports MSYS defaults) |
 | Run | `make cov-verilator` → `scripts/run_verilator_cov.sh` (Windows: `MSYS_BASH`) |
 | Shared TBs | `sim_1/new/tb_cov_isolation.sv`, `tb_cov_sniffer.sv` (same files XSim uses) |
 | Notes | `verilator/README.md`; build trees under `verilator/obj_dir/` (gitignored) |

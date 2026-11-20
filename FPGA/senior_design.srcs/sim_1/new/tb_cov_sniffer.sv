@@ -18,15 +18,27 @@ module tb_cov_sniffer;
     assign bit_strobe = (bit_phase == 2'b00) && !rst;
 
     logic tx_oe, tx_dp, tx_dn, corrupt;
+    logic force_se0 = 1'b0;
+    logic force_se1 = 1'b0;
     logic dp, dm;
-    assign dp = ((tx_oe ? tx_dp : 1'b1) ^ corrupt);
-    assign dm = (tx_oe ? tx_dn : 1'b0);
+    assign dp = force_se0 ? 1'b0 :
+                force_se1 ? 1'b1 :
+                ((tx_oe ? tx_dp : 1'b1) ^ corrupt);
+    assign dm = force_se0 ? 1'b0 :
+                force_se1 ? 1'b1 :
+                (tx_oe ? tx_dn : 1'b0);
 
     logic clear_fault = 1'b0;
     logic clear_fault_np = 1'b0;
     logic manual_kill = 1'b0;
+    logic approve = 1'b0;
+    logic approve_np = 1'b0;
+    logic [2:0] policy_mode = 3'd0;
+    logic [2:0] policy_mode_np = 3'd0;
     logic kill;
     logic [3:0] threat_code;
+    logic [3:0] threat_detail;
+    logic [3:0] threat_detail_np;
     logic [7:0] port_status;
     logic [15:0] vid, pid_dev;
     logic [7:0]  dev_class, intf_class;
@@ -36,8 +48,16 @@ module tb_cov_sniffer;
     logic [6:0] addr;
     logic [7:0] data;
 
+    // Short HID / re-enum windows so branch arms for 0x2 / cooldown / storm
+    // are reachable without multi-million-cycle waits (board defaults unchanged).
     sniffer_block #(
-        .POLICY_STORAGE_ONLY(1'b1)
+        .POLICY_STORAGE_ONLY      (1'b1),
+        // Min interval must exceed one IN+DATA wire packet (~few k cycles) so
+        // consecutive HID reports still count as a "fast" streak.
+        .HID_MIN_INTERVAL_CYCLES_P(100_000),
+        .HID_QUARANTINE_CYCLES_P  (20_000),
+        .REENUM_WINDOW_CYCLES_P   (200_000),
+        .REENUM_STORM_THRESH_P    (3)
     ) dut (
         .clk_48m           (clk_48m),
         .rst               (rst),
@@ -45,6 +65,8 @@ module tb_cov_sniffer;
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
+        .approve           (approve),
+        .policy_mode       (policy_mode),
         .pkt_start         (pkt_start),
         .pkt_end           (pkt_end),
         .pid               (pid),
@@ -60,6 +82,7 @@ module tb_cov_sniffer;
         .intf_class        (intf_class),
         .device_desc_valid (device_desc_valid),
         .intf_class_valid  (intf_class_valid),
+        .threat_detail     (threat_detail),
         .kill              (kill),
         .threat_code       (threat_code)
     );
@@ -80,7 +103,11 @@ module tb_cov_sniffer;
     logic [7:0] data_np;
 
     sniffer_block #(
-        .POLICY_STORAGE_ONLY(1'b0)
+        .POLICY_STORAGE_ONLY      (1'b0),
+        .HID_MIN_INTERVAL_CYCLES_P(100_000),
+        .HID_QUARANTINE_CYCLES_P  (20_000),
+        .REENUM_WINDOW_CYCLES_P   (200_000),
+        .REENUM_STORM_THRESH_P    (3)
     ) dut_no_policy (
         .clk_48m           (clk_48m),
         .rst               (rst),
@@ -88,6 +115,8 @@ module tb_cov_sniffer;
         .dm                (dm),
         .clear_fault       (clear_fault_np),
         .manual_kill       (1'b0),
+        .approve           (approve_np),
+        .policy_mode       (policy_mode_np),
         .pkt_start         (ps_np_s),
         .pkt_end           (pe_np),
         .pid               (upid_np),
@@ -103,6 +132,7 @@ module tb_cov_sniffer;
         .intf_class        (intf_np),
         .device_desc_valid (ddv_np),
         .intf_class_valid  (intf_np_valid),
+        .threat_detail     (threat_detail_np),
         .kill              (kill_np),
         .threat_code       (threat_np)
     );
@@ -279,6 +309,29 @@ module tb_cov_sniffer;
         repeat (4) @(posedge clk_48m);
     endtask
 
+    // Clear + approve HID-allowed instance (avoids hold 0x3 re-arm).
+    task automatic clear_and_approve_np();
+        approve_np = 1'b1;
+        clear_fault = 1'b1;
+        clear_fault_np = 1'b1;
+        @(posedge clk_48m);
+        approve_np = 1'b0;
+        clear_fault = 1'b0;
+        clear_fault_np = 1'b0;
+        repeat (4) @(posedge clk_48m);
+    endtask
+
+    // Hard reset: clears sticky first-intf / device_desc latches (clear_fault does not).
+    task automatic pulse_rst();
+        rst = 1'b1;
+        approve_np = 1'b0;
+        clear_fault = 1'b0;
+        clear_fault_np = 1'b0;
+        repeat (4) @(posedge clk_48m);
+        rst = 1'b0;
+        wait_idle_bits(8);
+    endtask
+
     task automatic send_in_token(input [6:0] addr_i, input [3:0] endp_i);
         logic [10:0] field;
         logic [4:0]  c5;
@@ -305,6 +358,24 @@ module tb_cov_sniffer;
         tx_buf[0] = frame_i[7:0];
         tx_buf[1] = {c5, frame_i[10:8]};
         send_packet(PID_SOF, 2, 1'b0);
+    endtask
+
+    // Boot-keyboard IN report on endp 1 (endp latched from prior IN token).
+    task automatic send_hid_report(input [7:0] k0, input [7:0] k1,
+                                   input [7:0] k2, input [7:0] k3);
+        send_in_token(7'd0, 4'h1);
+        tx_buf[0] = 8'h00; tx_buf[1] = 8'h00;
+        tx_buf[2] = k0;    tx_buf[3] = k1;
+        tx_buf[4] = k2;    tx_buf[5] = k3;
+        tx_buf[6] = 8'h00; tx_buf[7] = 8'h00;
+        send_data_bytes(PID_DATA0, 8, 1'b0);
+    endtask
+
+    task automatic force_bus_reset();
+        force_se0 = 1'b1;
+        repeat (30100) @(posedge clk_48m);
+        force_se0 = 1'b0;
+        wait_idle_bits(16);
     endtask
 
     task automatic send_get_desc_setup(input [6:0] addr_i, input [7:0] dtype,
@@ -487,19 +558,20 @@ module tb_cov_sniffer;
             $error("HID kill expect 0x1 got kill=%0b threat=%0h", kill, threat_code);
             errors++;
         end
-        // Policy-off instance latches HID class but must not isolate for 0x1
+        // HID-allowed instance: latch HID class, hold with 0x3 (not storage 0x1)
         if (!intf_np_valid || intf_np !== 8'h03) begin
             $error("no-policy intf=%h valid=%0b", intf_np, intf_np_valid);
             errors++;
         end
         if (kill_np && threat_np === `THREAT_UNAUTHORIZED_HID) begin
-            $error("no-policy must not HID-kill"); errors++;
+            $error("HID-allowed must not use UNAUTHORIZED_HID 0x1"); errors++;
         end
-        if (kill_np) begin
-            $error("no-policy unexpected kill threat=%0h", threat_np); errors++;
+        if (!kill_np || threat_np !== `THREAT_COOLDOWN_BURST) begin
+            $error("HID-allowed expect hold 0x3 kill=%0b threat=%0h",
+                   kill_np, threat_np); errors++;
         end
 
-        clear_both();
+        clear_and_approve_np();
 
         // ----------------------------------------------------------
         // Config with dlen==0 after config header → ST_SCAN_INTF abort
@@ -603,7 +675,8 @@ module tb_cov_sniffer;
         repeat (4) @(posedge clk_48m);
 
         // Mass-storage interface (class 0x08) — intf latch, no HID kill
-        clear_both();
+        // First-intf latch is sticky; rst so MSC can become the first class.
+        pulse_rst();
         send_get_desc_setup(7'd0, 8'h02, 8'h12, 8'h00);
         tx_buf[0] = 8'h09; tx_buf[1] = 8'h02;
         tx_buf[2] = 8'h12; tx_buf[3] = 8'h00;
@@ -652,6 +725,179 @@ module tb_cov_sniffer;
         end
         clear_both();
 
+        // ----------------------------------------------------------
+        // Suspicious enum → 0x4 (overflow / composite / multi-HID)
+        // ----------------------------------------------------------
+        pulse_rst();
+
+        // Host wLength > 512 → overflow detail
+        send_setup_token(7'd0, 4'h0);
+        tx_buf[0]=8'h80; tx_buf[1]=8'h06; tx_buf[2]=8'h00; tx_buf[3]=8'h02;
+        tx_buf[4]=8'h00; tx_buf[5]=8'h00; tx_buf[6]=8'h01; tx_buf[7]=8'h02; // 513
+        send_data_bytes(PID_DATA0, 8, 1'b0);
+        repeat (8) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_DESCRIPTOR_OVERFLOW) begin
+            $error("overflow expect 0x4 kill_np=%0b threat=%0h", kill_np, threat_np);
+            errors++;
+        end else if (threat_detail_np !== `DETAIL_OVERFLOW) begin
+            $error("overflow detail=%0h", threat_detail_np); errors++;
+        end else
+            $display("overflow → 0x4 detail OK");
+        // clear re-arms sticky suspicious
+        clear_and_approve_np();
+        repeat (4) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_DESCRIPTOR_OVERFLOW) begin
+            $error("overflow sticky re-arm"); errors++;
+        end
+        pulse_rst();
+
+        // Composite HID + MSC
+        send_get_desc_setup(7'd0, 8'h02, 8'h1B, 8'h00);
+        tx_buf[0]=8'h09; tx_buf[1]=8'h02; tx_buf[2]=8'h1B; tx_buf[3]=8'h00;
+        tx_buf[4]=8'h02; tx_buf[5]=8'h01; tx_buf[6]=8'h00; tx_buf[7]=8'hA0; tx_buf[8]=8'h32;
+        tx_buf[9]=8'h09; tx_buf[10]=8'h04; tx_buf[11]=8'h00; tx_buf[12]=8'h00;
+        tx_buf[13]=8'h01; tx_buf[14]=8'h03; tx_buf[15]=8'h01; tx_buf[16]=8'h01; tx_buf[17]=8'h00;
+        tx_buf[18]=8'h09; tx_buf[19]=8'h04; tx_buf[20]=8'h01; tx_buf[21]=8'h00;
+        tx_buf[22]=8'h02; tx_buf[23]=8'h08; tx_buf[24]=8'h06; tx_buf[25]=8'h50; tx_buf[26]=8'h00;
+        send_data_bytes(PID_DATA1, 27, 1'b0);
+        repeat (24) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_DESCRIPTOR_OVERFLOW ||
+            threat_detail_np !== `DETAIL_COMPOSITE_HID_MSC) begin
+            $error("composite expect 0x4/2 kill=%0b thr=%0h det=%0h",
+                   kill_np, threat_np, threat_detail_np);
+            errors++;
+        end else
+            $display("composite HID+MSC → 0x4 OK");
+        pulse_rst();
+
+        // Multi-HID
+        send_get_desc_setup(7'd0, 8'h02, 8'h1B, 8'h00);
+        tx_buf[0]=8'h09; tx_buf[1]=8'h02; tx_buf[2]=8'h1B; tx_buf[3]=8'h00;
+        tx_buf[4]=8'h02; tx_buf[5]=8'h01; tx_buf[6]=8'h00; tx_buf[7]=8'hA0; tx_buf[8]=8'h32;
+        tx_buf[9]=8'h09; tx_buf[10]=8'h04; tx_buf[11]=8'h00; tx_buf[12]=8'h00;
+        tx_buf[13]=8'h01; tx_buf[14]=8'h03; tx_buf[15]=8'h01; tx_buf[16]=8'h01; tx_buf[17]=8'h00;
+        tx_buf[18]=8'h09; tx_buf[19]=8'h04; tx_buf[20]=8'h01; tx_buf[21]=8'h00;
+        tx_buf[22]=8'h01; tx_buf[23]=8'h03; tx_buf[24]=8'h01; tx_buf[25]=8'h02; tx_buf[26]=8'h00;
+        send_data_bytes(PID_DATA1, 27, 1'b0);
+        repeat (24) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_DESCRIPTOR_OVERFLOW ||
+            threat_detail_np !== `DETAIL_MULTI_HID) begin
+            $error("multi-HID expect 0x4/3 kill=%0b thr=%0h det=%0h",
+                   kill_np, threat_np, threat_detail_np);
+            errors++;
+        end else
+            $display("multi-HID → 0x4 OK");
+        pulse_rst();
+
+        // Body wTotalLength > 512 (host wLength OK) → overflow arm in ST_DESC_DATA
+        send_get_desc_setup(7'd0, 8'h02, 8'h09, 8'h00);
+        tx_buf[0]=8'h09; tx_buf[1]=8'h02;
+        tx_buf[2]=8'h01; tx_buf[3]=8'h02; // wTotalLength = 513
+        tx_buf[4]=8'h01; tx_buf[5]=8'h01; tx_buf[6]=8'h00; tx_buf[7]=8'hA0; tx_buf[8]=8'h32;
+        send_data_bytes(PID_DATA1, 9, 1'b0);
+        repeat (24) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_DESCRIPTOR_OVERFLOW ||
+            threat_detail_np !== `DETAIL_OVERFLOW) begin
+            $error("body overflow expect 0x4/1 kill=%0b thr=%0h det=%0h",
+                   kill_np, threat_np, threat_detail_np);
+            errors++;
+        end else
+            $display("body wTotalLength overflow → 0x4 OK");
+        pulse_rst();
+
+        // dlen==0 after HID+MSC → composite via zero-length arm
+        send_get_desc_setup(7'd0, 8'h02, 8'h24, 8'h00);
+        tx_buf[0]=8'h09; tx_buf[1]=8'h02; tx_buf[2]=8'h24; tx_buf[3]=8'h00;
+        tx_buf[4]=8'h02; tx_buf[5]=8'h01; tx_buf[6]=8'h00; tx_buf[7]=8'hA0; tx_buf[8]=8'h32;
+        tx_buf[9]=8'h09; tx_buf[10]=8'h04; tx_buf[11]=8'h00; tx_buf[12]=8'h00;
+        tx_buf[13]=8'h01; tx_buf[14]=8'h03; tx_buf[15]=8'h01; tx_buf[16]=8'h01; tx_buf[17]=8'h00;
+        tx_buf[18]=8'h09; tx_buf[19]=8'h04; tx_buf[20]=8'h01; tx_buf[21]=8'h00;
+        tx_buf[22]=8'h02; tx_buf[23]=8'h08; tx_buf[24]=8'h06; tx_buf[25]=8'h50; tx_buf[26]=8'h00;
+        tx_buf[27]=8'h00; // zero-length; 27+5=32 < 36
+        for (ai = 28; ai < 36; ai++) tx_buf[ai] = 8'h5A;
+        send_data_bytes(PID_DATA1, 36, 1'b0);
+        repeat (32) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_DESCRIPTOR_OVERFLOW ||
+            threat_detail_np !== `DETAIL_COMPOSITE_HID_MSC) begin
+            $error("dlen0 composite expect 0x4/2 kill=%0b thr=%0h det=%0h",
+                   kill_np, threat_np, threat_detail_np);
+            errors++;
+        end else
+            $display("dlen0 composite → 0x4 OK");
+        pulse_rst();
+
+        // ----------------------------------------------------------
+        // Post-approve HID timing through sniffer (0x3 cooldown / 0x2 burst)
+        // ----------------------------------------------------------
+        send_get_desc_setup(7'd0, 8'h02, 8'h12, 8'h00);
+        tx_buf[0]=8'h09; tx_buf[1]=8'h02; tx_buf[2]=8'h12; tx_buf[3]=8'h00;
+        tx_buf[4]=8'h01; tx_buf[5]=8'h01; tx_buf[6]=8'h00; tx_buf[7]=8'hA0; tx_buf[8]=8'h32;
+        tx_buf[9]=8'h09; tx_buf[10]=8'h04; tx_buf[11]=8'h00; tx_buf[12]=8'h00;
+        tx_buf[13]=8'h01; tx_buf[14]=8'h03; tx_buf[15]=8'h01; tx_buf[16]=8'h01; tx_buf[17]=8'h00;
+        send_data_bytes(PID_DATA1, 18, 1'b0);
+        repeat (16) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_COOLDOWN_BURST) begin
+            $error("pre-approve hold expect 0x3 kill=%0b thr=%0h", kill_np, threat_np);
+            errors++;
+        end
+        clear_and_approve_np();
+        // First key-down still inside quarantine window → cooldown 0x3
+        send_hid_report(8'h04, 8'h00, 8'h00, 8'h00);
+        repeat (8) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_COOLDOWN_BURST) begin
+            $error("post-approve cooldown expect 0x3 kill=%0b thr=%0h",
+                   kill_np, threat_np);
+            errors++;
+        end else
+            $display("HID cooldown via sniffer → 0x3 OK");
+        clear_and_approve_np();
+        // Expire quarantine (20k), then back-to-back keys (Δt << 100k) → 0x2
+        repeat (20_200) @(posedge clk_48m);
+        send_hid_report(8'h05, 8'h00, 8'h00, 8'h00);
+        send_hid_report(8'h06, 8'h00, 8'h00, 8'h00);
+        send_hid_report(8'h07, 8'h00, 8'h00, 8'h00);
+        send_hid_report(8'h08, 8'h00, 8'h00, 8'h00);
+        send_hid_report(8'h09, 8'h00, 8'h00, 8'h00);
+        send_hid_report(8'h0A, 8'h00, 8'h00, 8'h00);
+        repeat (8) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_KEYSTROKE_BURST) begin
+            $error("keystroke burst expect 0x2 kill=%0b thr=%0h", kill_np, threat_np);
+            errors++;
+        end else
+            $display("HID burst via sniffer → 0x2 OK");
+        // Extra key-slot / DATA1 toggle coverage (while already killed is fine)
+        send_hid_report(8'h00, 8'h00, 8'h0A, 8'h00);
+        send_in_token(7'd0, 4'h1);
+        tx_buf[0]=8'h00; tx_buf[1]=8'h00; tx_buf[2]=8'h00; tx_buf[3]=8'h00;
+        tx_buf[4]=8'h00; tx_buf[5]=8'h0B; tx_buf[6]=8'h00; tx_buf[7]=8'h00;
+        send_data_bytes(PID_DATA1, 8, 1'b0);
+        pulse_rst();
+
+        // SE1 line-state nudge (usb_fs_rx SE1 arm)
+        force_se1 = 1'b1;
+        repeat (16) @(posedge clk_48m);
+        force_se1 = 1'b0;
+        repeat (8) @(posedge clk_48m);
+
+        // Re-enum storm through sniffer (≥3 bus resets in short window) → 0x4/4
+        force_bus_reset();
+        force_bus_reset();
+        force_bus_reset();
+        repeat (8) @(posedge clk_48m);
+        if (!kill_np || threat_np !== `THREAT_DESCRIPTOR_OVERFLOW ||
+            threat_detail_np !== `DETAIL_REENUM_STORM) begin
+            $error("reenum storm expect 0x4/4 kill=%0b thr=%0h det=%0h",
+                   kill_np, threat_np, threat_detail_np);
+            errors++;
+        end else
+            $display("re-enum storm via sniffer → 0x4 OK");
+        pulse_rst();
+
+        // SPI policy_mode toggle edge (HID-allowed → storage-only)
+        policy_mode_np = `POLICY_STORAGE_ONLY;
+        repeat (4) @(posedge clk_48m);
+        policy_mode_np = `POLICY_HID_ALLOWED;
+
         // Extra clear/manual edges for isolation toggle under sniffer
         manual_kill = 1'b1;
         repeat (2) @(posedge clk_48m);
@@ -659,13 +905,26 @@ module tb_cov_sniffer;
         clear_both();
         clear_both();
 
+        // Byte / addr toggle sweep (wide-signal BRDA points)
+        for (ai = 0; ai < 8; ai++) begin
+            tx_buf[0] = 8'h01 << ai;
+            tx_buf[1] = 8'h80 >> ai;
+            tx_buf[2] = 8'hA5 ^ ai[7:0];
+            send_data_bytes(PID_DATA0, 3, 1'b0);
+        end
+        send_in_token(7'd0, 4'h0);
+        send_in_token(7'd64, 4'h7);
+        send_out_token(7'd33, 4'h3);
+        send_sof(11'h155);
+        send_sof(11'h2AA);
+
         if (errors == 0) $display("tb_cov_sniffer: PASS");
         else             $display("tb_cov_sniffer: FAIL (%0d errors)", errors);
         $finish;
     end
 
     initial begin
-        #250ms;
+        #500ms;
         $error("global timeout");
         $finish;
     end

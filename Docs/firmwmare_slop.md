@@ -123,7 +123,8 @@ Threat codes and register fields must match [`Docs/fabric_slop.md`](fabric_slop.
 Minimum set (names may match GUI protocol enums):
 * Manual isolate / re-enable port
 * Clear fault latch on FPGA
-* Soft policy mode change (when implemented)
+* Soft policy mode change (`Pn_CONTROL[2:0]`: `0` HID-allowed, `1` storage-only)
+* **Approve HID** (`Pn_CONTROL[5]`): releases HID-hold quarantine and sets FPGA `approved` sticky (required before keystroke filter arms)
 
 Exact JSON schemas live with the GUI protocol module; update both sides together.
 

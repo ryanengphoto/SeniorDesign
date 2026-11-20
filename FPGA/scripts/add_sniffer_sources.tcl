@@ -17,6 +17,7 @@ foreach f [list \
   [file join $src usb_packet_frontend.sv] \
   [file join $src isolation_controller.sv] \
   [file join $src enumeration_analysis.sv] \
+  [file join $src hid_timing_filter.sv] \
   [file join $src sniffer_block.sv] \
   [file join $src sniffer_wrapper.sv] \
   [file join $src register_file.sv] \
@@ -51,6 +52,10 @@ foreach f [list \
   [file join $sim tb_main_selfstim.sv] \
   [file join $sim tb_spi_manual_kill.sv] \
   [file join $sim tb_kill_manual_cross.sv] \
+  [file join $sim tb_hid_timing.sv] \
+  [file join $sim tb_hid_pending_approve.sv] \
+  [file join $sim tb_suspicious_enum.sv] \
+  [file join $sim tb_bit_stuff.sv] \
   [file join $sim tb_cov_isolation.sv] \
   [file join $sim tb_cov_sniffer.sv] \
   [file join $sim isolation_controller_sva.sv] \

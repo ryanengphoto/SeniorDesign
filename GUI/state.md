@@ -16,7 +16,7 @@
 - [x] **Windows serial host path:** `scripts/run_windows_serial.ps1` + COM ports (keeps WSL `linux-serial` / usbipd path)
 - [ ] MCU firmware speaking the same JSON contract (Black Pill / carrier)
 - [ ] Wire real telemetry: INA219 `vbus_mv` / `current_ma`, FPGA descriptor fields over SPI
-- [ ] Forward host commands (`isolate_port`, `restore_port`, `clear_fault`) to MCU → FPGA
+- [ ] Forward host commands (`isolate_port`, `restore_port`, `clear_fault`, `approve_port`) to MCU → FPGA
 - [ ] Verify end-to-end with hardware on the bench
 - [ ] Package native Linux (`make build-linux`) and Windows (`make build-windows` on a Windows host / `scripts/build_windows.ps1`) for demo day
 
@@ -116,7 +116,8 @@ These parts are functional prototype code, not placeholders.
 
 **MCU → host:** newline-delimited telemetry JSON (`timestamp_ms`, `ports[]`)
 
-**Host → MCU:** `{"type":"command","cmd":"isolate_port"|"restore_port"|"clear_fault","port":0-3}\n`
+**Host → MCU:** `{"type":"command","cmd":"isolate_port"|"restore_port"|"clear_fault"|"approve_port","port":0-3}\n`  
+(`approve_port` → FPGA `Pn_CONTROL[5]`; releases HID-hold quarantine. Protocol enum present; MCU/UI wiring still follow-up.)
 
 **Enums:** port states (`DISCONNECTED` … `MANUAL_BLOCKED`); threat codes 0–7 per `Docs/fabric_slop.md` §6
 

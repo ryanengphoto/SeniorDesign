@@ -32,6 +32,12 @@ module tb_enum_e2e;
     logic [`NUM_PORTS-1:0] manual_kill = '0;
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code [`NUM_PORTS-1:0];
+    logic [3:0]            threat_detail [`NUM_PORTS-1:0];
+    logic [`NUM_PORTS-1:0] approve = '0;
+    logic [2:0]            policy_mode [`NUM_PORTS-1:0];
+    initial begin : init_policy
+        for (int pi = 0; pi < `NUM_PORTS; pi++) policy_mode[pi] = 3'd0;
+    end
     logic [7:0]            port_status [`NUM_PORTS-1:0];
     logic [15:0]           vid         [`NUM_PORTS-1:0];
     logic [15:0]           pid_dev     [`NUM_PORTS-1:0];
@@ -54,8 +60,11 @@ module tb_enum_e2e;
         .dm                (dm),
         .clear_fault       (clear_fault),
         .manual_kill       (manual_kill),
+        .approve           (approve),
+        .policy_mode       (policy_mode),
         .kill              (kill),
         .threat_code       (threat_code),
+        .threat_detail     (threat_detail),
         .port_status       (port_status),
         .vid               (vid),
         .pid_dev           (pid_dev),

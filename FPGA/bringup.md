@@ -9,7 +9,7 @@ Stand-alone demo path for the sniffer fabric **without** the carrier PCB. Source
 1. 12 MHz → 48 MHz MMCM (`clk_wiz_12_to_48`)
 2. After lock, waits ~20 ms (`BOOT_STIM_CYCLES = 1_000_000` @ 48 MHz)
 3. `usb_demo_selfstim` plays FS SETUP + device desc + HID config on **port 0**
-4. Storage-only policy → HID interface class `0x03` → sticky kill threat `0x1`
+4. HID-allowed default → HID interface → sticky HID-hold threat `0x3` until SPI Approve (`Pn_CONTROL[5]`)
 5. LEDs / RGB show kill; `btn_clear` clears faults; `btn_rst` re-arms the demo
 
 Bitstream (after `make build`):
@@ -55,7 +55,7 @@ Manual GUI alternate: Vivado → Open Hardware Manager → Auto Connect → Prog
 1. After config (~20 ms): expect **LED0 on**, **RGB red** (active-low red), green during/after stim.
 2. Press **btn_clear** (D1): LED0 / red off. Telemetry (VID/PID/class) remains in registers.
 3. Press **btn_rst** (D2): MMCM re-lock / reset; sequence re-arms and repeats.
-4. Optional: SPI master on **DIP PIO40–43** (`spi_sck/mosi/miso/cs_n`) — read `P0_STATUS` `0x11`, VID/PID `0x12`–`0x15`, classes `0x16`–`0x17`. Expect isolated+threat `0xC1` style status while killed.
+4. Optional: SPI master on **DIP PIO40–43** (`spi_sck/mosi/miso/cs_n`) — read `P0_STATUS` `0x11`, VID/PID `0x12`–`0x15`, classes `0x16`–`0x17`. Expect isolated+pending+threat `0xE3` style status while HID-hold killed; Approve with `Pn_CONTROL=0x20`.
 
 ### Pin cheat sheet (Digilent Cmod S7 bring-up XDC)
 
@@ -108,10 +108,10 @@ Normal release bitstream should stay ILA-free; use a separate debug build flag w
 | RGB | Red active while port0 isolated |
 | `btn_clear` | Kill releases |
 | `btn_rst` | Demo re-runs |
-| SPI (if used) | `P0_STATUS` shows threat `0x1` while killed; VID `0x1234` / PID `0x5678` / intf class `0x03` |
+| SPI (if used) | `P0_STATUS` shows threat `0x3` (HID hold) while killed; VID `0x1234` / PID `0x5678` / intf class `0x03` |
 
 ## Out of scope for this bring-up
 
 - Real D+/D− from a USB device (needs taps / carrier)
 - MCU firmware loop and GUI on live UART
-- HID keystroke timing, LS USB, packet FIFO
+- LS USB, packet FIFO (HID timing filter is in RTL; board bring-up of burst path still TBD)

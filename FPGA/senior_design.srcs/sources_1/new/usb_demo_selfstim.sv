@@ -3,7 +3,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 // Module: usb_demo_selfstim
 // Purpose: On-FPGA FS packet player for Cmod demo without carrier USB taps.
-//          Plays SETUP + device desc + SETUP + HID config → storage-only kill.
+//          Plays SETUP + device desc + SETUP + HID config → HID-hold kill (0x3).
 //////////////////////////////////////////////////////////////////////////////////
 
 module usb_demo_selfstim (
