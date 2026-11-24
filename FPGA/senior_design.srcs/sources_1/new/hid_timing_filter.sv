@@ -1,10 +1,7 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module: hid_timing_filter
-// Purpose: Detect BadUSB-style keystroke injection after operator approve.
-//          Key-down = new nonzero boot-keyboard key code in an IN report
-//          (endp != 0 DATA packet). Emits KEYSTROKE_BURST / COOLDOWN_BURST.
+// Post-approve HID timing: keystroke burst and post-enum cooldown burst detection.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -83,9 +80,7 @@ module hid_timing_filter #(
             keystroke_burst_pulse <= 1'b0;
             cooldown_burst_pulse  <= 1'b0;
 
-            // Cooldown window after config walk completes. Drop saw_config when
-            // the walk flag clears (bus reset / new GET_CONFIG) so a re-enum
-            // re-arms the 2s quarantine.
+            // Post-enum cooldown; re-arm when config_walk_done drops then rises.
             if (!config_walk_done) begin
                 saw_config <= 1'b0;
             end else if (!saw_config) begin
@@ -108,10 +103,7 @@ module hid_timing_filter #(
                 byte_idx    <= 4'd0;
                 fast_streak <= 3'd0;
             end else begin
-                // usb_packet_frontend / usb_fs_rx update pid+endp at pkt_end, so
-                // at pkt_start those ports still hold the *previous* packet.
-                // After an IN token, endp is already the interrupt EP; do not
-                // require is_data here (PID is still the token until pkt_end).
+                // Start capture on non-EP0; PID is confirmed at pkt_end.
                 if (pkt_start && (endp != 4'h0)) begin
                     in_report <= 1'b1;
                     byte_idx  <= 4'd0;
@@ -124,7 +116,6 @@ module hid_timing_filter #(
 
                 if (in_report && pkt_end) begin
                     in_report <= 1'b0;
-                    // Confirm DATA PID now that pkt_end has updated `pid`.
                     if (is_data && crc_ok && byte_idx >= 4'd8 && report_key_down) begin
                         if (cooldown_active)
                             cooldown_burst_pulse <= 1'b1;

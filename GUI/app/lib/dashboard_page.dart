@@ -7,7 +7,7 @@ import 'theme.dart';
 import 'widgets/event_log.dart';
 import 'widgets/port_card.dart';
 
-/// Live port console (no chrome — [ConsoleShell] owns the header).
+/// Downstream port cards and optional event-log sidebar.
 class DashboardPage extends StatefulWidget {
   const DashboardPage({
     super.key,

@@ -1,27 +1,16 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module Name:   sniffer_block
-// Description:
-//   Per-port USB packet sniffer (48 MHz domain).
-//   PHY is main's usb_line_attach + usb_packet_frontend (is_ls / speed_valid).
-//   Security from victor, retargeted onto that PHY:
-//     policy 0 STORAGE_ONLY → sticky UNAUTHORIZED_HID (0x1) for any HID iface
-//     policy 1 HID_CONFIRM  → pending hold until APPROVE_HID (not a threat code)
-//     policy 2 HID_ALLOW    → no auto hold; HID timing filter arms immediately
-//     suspicious enum       → 0x4 + threat_detail (overflow/composite/multi/storm)
-//     post-arm key timing   → 0x2 keystroke burst, 0x3 cooldown burst
-//     CRC                   → 0x5, muted until speed_valid
-//   Bit-stuff 0x6 is not wired: usb_sie_rx tracks stuff bits but does not
-//   export an error strobe (TODO in usb_sie_rx.sv).
+// Per-port USB sniffer (48 MHz): attach/PHY, enum analysis, HID timing, kill.
+// Policies: 0 storage-only, 1 HID-confirm, 2 HID-allow.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
 
 module sniffer_block #(
-    // usb_line_attach: 0=auto FS/LS from J, 1=force FS, 2=force LS (not HS)
+    // 0 = auto FS/LS, 1 = FS, 2 = LS
     parameter int SPEED_MODE = 0,
-    // Sim overrides (board / wrapper leave defaults = fabric_slop timing).
+    // Sim overrides
     parameter int HID_MIN_INTERVAL_CYCLES_P = `HID_MIN_INTERVAL_CYCLES,
     parameter int HID_QUARANTINE_CYCLES_P   = `HID_QUARANTINE_CYCLES,
     parameter int REENUM_WINDOW_CYCLES_P    = `REENUM_WINDOW_CYCLES,
@@ -166,18 +155,11 @@ module sniffer_block #(
         .reenum_storm_pulse     (reenum_storm_pulse)
     );
 
-    // HID-after-confirm session latch (main contract).
-    // - Disconnect clears pending + approval (next plug must confirm).
-    // - Manual kill ends the session so isolate→restore cannot keep APPROVE_HID.
-    // - clear_fault does NOT release pending and does NOT approve.
-    // - After manual_kill drops, re-arm pending if a HID is still enumerated.
+    // HID-confirm session
     wire hid_class_now = speed_valid && intf_class_valid && (intf_class == 8'h03);
 
     always_ff @(posedge clk_48m) begin
-        if (rst || disconnect_stb) begin
-            hid_pending  <= 1'b0;
-            hid_approved <= 1'b0;
-        end else if (manual_kill) begin
+        if (rst || disconnect_stb || manual_kill) begin
             hid_pending  <= 1'b0;
             hid_approved <= 1'b0;
         end else if (approve_hid) begin
@@ -190,8 +172,7 @@ module sniffer_block #(
         end
     end
 
-    // Hold from attach until the interface is known and is not HID, or until
-    // APPROVE_HID. Covers the pre-class window on a wired mux/eFuse.
+    // Hold kill until class is known non-HID, or host approves HID.
     wire hid_confirm_hold =
         (policy_mode == `CTRL_POLICY_HID_CONFIRM) &&
         attached && speed_valid &&
@@ -199,7 +180,7 @@ module sniffer_block #(
         !manual_kill &&
         (!intf_class_valid || (intf_class == 8'h03) || hid_keyboard_seen);
 
-    // Timing filter arms after approve (HID_CONFIRM) or immediately (HID_ALLOW).
+    // Arm keystroke filter after approve (confirm) or immediately (allow).
     wire hid_filter_en = speed_valid && hid_keyboard_seen &&
         (policy_mode != `CTRL_POLICY_STORAGE_ONLY) &&
         ((policy_mode == `CTRL_POLICY_HID_ALLOW) || hid_approved);
@@ -241,8 +222,7 @@ module sniffer_block #(
             suspicious_detail = `DETAIL_NONE;
     end
 
-    // Sticky suspicious family: clear_fault releases kill but re-arms until
-    // disconnect (clear_telemetry). A storm pulse on the disconnect cycle wins.
+    // Sticky suspicious-enum flag; pulse wins over disconnect on the same cycle.
     always_ff @(posedge clk_48m) begin
         if (rst) begin
             suspicious_sticky <= 1'b0;
@@ -258,8 +238,7 @@ module sniffer_block #(
 
     assign suspicious_hold = suspicious_sticky && !kill;
 
-    // Storage-only: any HID after the config walk, not only the first interface.
-    // Composite / multi-HID stay on 0x4 via suspicious_* priority.
+    // Storage-only policy.
     assign unauthorized_hid_pulse =
         speed_valid &&
         (policy_mode == `CTRL_POLICY_STORAGE_ONLY) &&
@@ -301,8 +280,7 @@ module sniffer_block #(
         .threat_code   (iso_threat)
     );
 
-    // Pending HID hold ORs into kill. threat_code stays the sticky ISO code
-    // (0 while only pending) — GUI keys off STATUS HID-pending / UART state.
+    // Pending HID also asserts kill; threat_code stays isolation sticky code.
     assign kill        = iso_kill | hid_pending | hid_confirm_hold;
     assign threat_code = iso_threat;
 

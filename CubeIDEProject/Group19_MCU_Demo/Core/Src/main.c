@@ -55,10 +55,9 @@ typedef struct
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-/* LIVE SPI bring-up parity with Firmware/ (PlatformIO FPGA_SPI_BRINGUP). */
 #define NUM_PORTS 4
 #define FPGA_SPI_POLL_MS 200
-#define FPGA_SPI_XFER_TIMEOUT_MS 5U /* fail-fast; was 20 — long stalls look like UART death */
+#define FPGA_SPI_XFER_TIMEOUT_MS 5U
 #define THREAT_MANUAL_HOST_KILL 7
 
 #define FPGA_ADDR_SYS_STATUS 0x00
@@ -93,19 +92,16 @@ char uartJsonRxBuffer[256];
 uint16_t uartJsonRxIndex = 0;
 static uint32_t led_until_ms = 0;
 
-/*
- * Bare-metal RXNE ring (not HAL_UART_Receive_IT). Mixing Receive_IT with
- * blocking HAL_UART_Transmit can wedge huart->gState and silently stop TX/RX.
- */
+/* Polled UART RX ring. */
 #define UART_RX_RING_SIZE 256U
 static volatile uint8_t uartRxRing[UART_RX_RING_SIZE];
 static volatile uint16_t uartRxHead = 0;
 static volatile uint16_t uartRxTail = 0;
 
-/* Sticky SPI health for the current poll; telemetry still TX's on failure. */
+/* Cleared on SPI transfer failure for the current poll cycle. */
 static uint8_t spi_bus_ok = 1;
 
-/* Set only by confirm_hid; cleared on isolate / disconnect mapping. */
+/* Host confirmed HID on this port. */
 static uint8_t hid_mcu_approved[NUM_PORTS];
 
 /* USER CODE END PV */
@@ -194,7 +190,6 @@ int main(void)
   memset(hid_mcu_approved, 0, sizeof(hid_mcu_approved));
   StatusLed_Off();
 
-  /* Match PlatformIO: HID-after-confirm on every sniffer channel. */
   for (uint8_t i = 0; i < NUM_PORTS; i++)
   {
       FPGA_SetPolicy(i, FPGA_POLICY_HID_CONFIRM);
@@ -202,7 +197,6 @@ int main(void)
 
   FPGA_PollAllPorts();
   UartRx_Start();
-  /* Distinct boot line so a CubeIDE flash of this TX path is obvious in miniterm. */
   {
       static const char boot[] = "{\"mcu\":\"uart_bm6\"}\n";
       (void)UartTx_Write((const uint8_t *)boot, (uint16_t)(sizeof(boot) - 1U),
@@ -225,7 +219,6 @@ int main(void)
       {
           lastSpiPoll = HAL_GetTick();
           StatusLed_Pulse(30);
-          /* Fire-and-forget UART first — never waits for host ACKs. SPI after. */
           SendJsonTelemetry();
           FPGA_PollAllPorts();
       }
@@ -294,7 +287,6 @@ static void MX_SPI2_Init(void)
   /* USER CODE BEGIN SPI2_Init 1 */
 
   /* USER CODE END SPI2_Init 1 */
-  /* SPI2 on APB1 @ 42 MHz; /32 ≈ 1.3 MHz (parity with prior SPI1 @ 84/64). */
   hspi2.Instance = SPI2;
   hspi2.Init.Mode = SPI_MODE_MASTER;
   hspi2.Init.Direction = SPI_DIRECTION_2LINES;
@@ -385,7 +377,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(SPI_CS_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin (PA5) — Nucleo green LED, active-high */
   GPIO_InitStruct.Pin = LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -398,19 +389,20 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/* Reset RX ring and disable USART1 interrupts. */
 void UartRx_Start(void)
 {
     uartRxHead = 0;
     uartRxTail = 0;
     __HAL_UART_CLEAR_OREFLAG(&huart1);
-    /* Poll RX in the main loop — no USART IRQ. USB couple into the RX
-     * jumper during Ducky enum must not preempt TX forever. */
     HAL_NVIC_DisableIRQ(USART1_IRQn);
     CLEAR_BIT(huart1.Instance->CR1, USART_CR1_RXNEIE);
     CLEAR_BIT(huart1.Instance->CR1, USART_CR1_PEIE);
     CLEAR_BIT(huart1.Instance->CR3, USART_CR3_EIE);
 }
 
+/* Push one byte into the RX ring. */
 void UartRx_PushByte(uint8_t byte)
 {
     uint16_t next = (uint16_t)((uartRxHead + 1U) % UART_RX_RING_SIZE);
@@ -421,6 +413,7 @@ void UartRx_PushByte(uint8_t byte)
     }
 }
 
+/* Drain USART RXNE into the ring and clear overrun. */
 void UartRx_Poll(void)
 {
     while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
@@ -433,9 +426,9 @@ void UartRx_Poll(void)
     }
 }
 
+/* Clear UART errors and restore HAL/USART ready state for polled TX. */
 void UartTx_Recover(void)
 {
-    /* Unstick HAL + USART; keep any pending RX byte for the command ring. */
     if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
     {
         UartRx_PushByte((uint8_t)(huart1.Instance->DR & 0xFFU));
@@ -455,6 +448,7 @@ void UartTx_Recover(void)
     HAL_NVIC_DisableIRQ(USART1_IRQn);
 }
 
+/* Polled UART transmit. */
 int UartTx_Write(const uint8_t *data, uint16_t len, uint32_t timeout_ms)
 {
     uint32_t start;
@@ -479,7 +473,6 @@ int UartTx_Write(const uint8_t *data, uint16_t len, uint32_t timeout_ms)
                 UartTx_Recover();
                 return 0;
             }
-            /* Keep host commands (confirm_hid etc.) — do not discard RX. */
             if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
             {
                 UartRx_PushByte((uint8_t)(huart1.Instance->DR & 0xFFU));
@@ -511,6 +504,7 @@ int UartTx_Write(const uint8_t *data, uint16_t len, uint32_t timeout_ms)
     return 1;
 }
 
+/* Pop one byte from the RX ring. */
 int UartRx_Pop(uint8_t *out)
 {
     uint16_t tail;
@@ -533,9 +527,9 @@ int UartRx_Pop(uint8_t *out)
     return 1;
 }
 
+/* USART1 ISR. */
 void USART1_IRQHandler(void)
 {
-    /* Overrun: read SR then DR to clear, keep RX alive. */
     if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE))
     {
         volatile uint32_t sr = huart1.Instance->SR;
@@ -567,6 +561,7 @@ void USART1_IRQHandler(void)
     }
 }
 
+/* Assemble JSON commands from the RX ring. */
 void PollHostCommands(void)
 {
     uint8_t c;
@@ -598,22 +593,26 @@ void PollHostCommands(void)
     }
 }
 
+/* Turn LD2 on. */
 void StatusLed_On(void)
 {
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 }
 
+/* Turn LD2 off. */
 void StatusLed_Off(void)
 {
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 }
 
+/* Pulse LD2. */
 void StatusLed_Pulse(uint32_t ms)
 {
     StatusLed_On();
     led_until_ms = HAL_GetTick() + ms;
 }
 
+/* Expire a pending LED pulse. */
 void StatusLed_Service(void)
 {
     if ((led_until_ms != 0U) &&
@@ -624,14 +623,15 @@ void StatusLed_Service(void)
     }
 }
 
+/* Short wait for SPI chip-select. */
 void FPGA_SpiCsSettle(void)
 {
-    /* ~2 µs setup/hold like PlatformIO fpga_bridge (busy-wait @ 84 MHz). */
     for (volatile uint32_t i = 0; i < 50U; i++)
     {
     }
 }
 
+/* On SPI error mark bus bad, deassert CS, and reset the SPI peripheral. */
 HAL_StatusTypeDef FPGA_SpiRecoverIfNeeded(HAL_StatusTypeDef st)
 {
     if (st == HAL_OK)
@@ -639,7 +639,6 @@ HAL_StatusTypeDef FPGA_SpiRecoverIfNeeded(HAL_StatusTypeDef st)
         return st;
     }
     spi_bus_ok = 0;
-    /* Unstick without HAL_SPI_Abort (can busy-wait); keep UART alive. */
     HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET);
     CLEAR_BIT(hspi2.Instance->CR1, SPI_CR1_SPE);
     if (__HAL_SPI_GET_FLAG(&hspi2, SPI_FLAG_RXNE) != RESET)
@@ -654,11 +653,13 @@ HAL_StatusTypeDef FPGA_SpiRecoverIfNeeded(HAL_StatusTypeDef st)
     return st;
 }
 
+/* Return 1 if the current SPI poll cycle is still healthy. */
 uint8_t FPGA_SpiBusOk(void)
 {
     return spi_bus_ok;
 }
 
+/* Write one FPGA register. */
 void FPGA_WriteRegister(uint8_t address, uint8_t data)
 {
     uint8_t txData[2];
@@ -679,6 +680,7 @@ void FPGA_WriteRegister(uint8_t address, uint8_t data)
     FPGA_SpiCsSettle();
 }
 
+/* Read one FPGA register. */
 uint8_t FPGA_ReadRegister(uint8_t address)
 {
     uint8_t txData[2];
@@ -702,6 +704,7 @@ uint8_t FPGA_ReadRegister(uint8_t address)
     return rxData[1];
 }
 
+/* Read the eight-byte control/status/descriptor block for one port. */
 void FPGA_ReadPort(uint8_t port, FpgaPortBlock *data)
 {
     if ((port >= NUM_PORTS) || (data == NULL) || !spi_bus_ok)
@@ -725,6 +728,7 @@ void FPGA_ReadPort(uint8_t port, FpgaPortBlock *data)
     data->interfaceClass = FPGA_ReadRegister((uint8_t)(base + 0x07));
 }
 
+/* Combine VID high/low bytes from a port block. */
 uint16_t FPGA_GetVID(const FpgaPortBlock *data)
 {
     if (data == NULL)
@@ -734,6 +738,7 @@ uint16_t FPGA_GetVID(const FpgaPortBlock *data)
     return (uint16_t)(((uint16_t)data->vidHigh << 8) | data->vidLow);
 }
 
+/* Combine PID high/low bytes from a port block. */
 uint16_t FPGA_GetPID(const FpgaPortBlock *data)
 {
     if (data == NULL)
@@ -743,6 +748,7 @@ uint16_t FPGA_GetPID(const FpgaPortBlock *data)
     return (uint16_t)(((uint16_t)data->pidHigh << 8) | data->pidLow);
 }
 
+/* Pulse kill if HID is live without MCU confirm, re-arming pending hold. */
 void FPGA_RearmHidIfNeeded(uint8_t port, const FpgaPortBlock *data)
 {
     uint8_t attached;
@@ -765,8 +771,6 @@ void FPGA_RearmHidIfNeeded(uint8_t port, const FpgaPortBlock *data)
         return;
     }
 
-    /* FPGA shows live HID as AUTHORIZED without our confirm — pulse isolate
-     * to clear sticky hid_approved and re-arm pending (matches fabric rule). */
     if (!hid_mcu_approved[port] && !hid_pending && !killed &&
         (data->interfaceClass == 0x03u))
     {
@@ -775,6 +779,7 @@ void FPGA_RearmHidIfNeeded(uint8_t port, const FpgaPortBlock *data)
     }
 }
 
+/* Copy one FPGA port block into the GUI-facing PortStatus cache. */
 void FPGA_ApplyPortToState(uint8_t port, const FpgaPortBlock *data)
 {
     if ((port >= NUM_PORTS) || (data == NULL))
@@ -795,6 +800,7 @@ void FPGA_ApplyPortToState(uint8_t port, const FpgaPortBlock *data)
     }
 }
 
+/* Poll all four ports over SPI; stop early if the bus fails. */
 void FPGA_PollAllPorts(void)
 {
     FpgaPortBlock block;
@@ -805,13 +811,12 @@ void FPGA_PollAllPorts(void)
     {
         if (!spi_bus_ok)
         {
-            break; /* keep prior port state; still emit UART below */
+            break;
         }
         FPGA_ReadPort(i, &block);
         if (spi_bus_ok)
         {
             FPGA_RearmHidIfNeeded(i, &block);
-            /* Re-read after a possible re-arm so UART sees PENDING, not AUTHORIZED. */
             FPGA_ReadPort(i, &block);
             if (spi_bus_ok)
             {
@@ -821,6 +826,7 @@ void FPGA_PollAllPorts(void)
     }
 }
 
+/* Read the policy nibble from a port control register. */
 uint8_t FPGA_PolicyBits(uint8_t port)
 {
     if (port >= NUM_PORTS)
@@ -831,6 +837,7 @@ uint8_t FPGA_PolicyBits(uint8_t port)
                      FPGA_CTRL_POLICY_MASK);
 }
 
+/* Write HID/storage policy bits while preserving other control flags. */
 void FPGA_SetPolicy(uint8_t port, uint8_t policy)
 {
     if (port >= NUM_PORTS)
@@ -845,6 +852,7 @@ void FPGA_SetPolicy(uint8_t port, uint8_t policy)
     FPGA_WriteRegister(addr, next);
 }
 
+/* Assert or clear manual kill on a port (policy bits preserved). */
 void FPGA_SetManualKill(uint8_t port, uint8_t enable)
 {
     if (port >= NUM_PORTS)
@@ -858,6 +866,7 @@ void FPGA_SetManualKill(uint8_t port, uint8_t enable)
                                     : policy);
 }
 
+/* Pulse clear_fault on a port, then restore policy-only control. */
 void FPGA_ClearFault(uint8_t port)
 {
     if (port >= NUM_PORTS)
@@ -871,6 +880,7 @@ void FPGA_ClearFault(uint8_t port)
     FPGA_WriteRegister(addr, policy);
 }
 
+/* Pulse approve_hid on a port, then restore policy-only control. */
 void FPGA_ApproveHid(uint8_t port)
 {
     if (port >= NUM_PORTS)
@@ -884,12 +894,14 @@ void FPGA_ApproveHid(uint8_t port)
     FPGA_WriteRegister(addr, policy);
 }
 
+/* Clear manual kill and sticky fault on a port. */
 void FPGA_RestorePort(uint8_t port)
 {
     FPGA_SetManualKill(port, 0);
     FPGA_ClearFault(port);
 }
 
+/* Map FPGA status bits to the host-facing port state string. */
 const char *GetPortStateString(uint8_t port)
 {
     if (port >= NUM_PORTS)
@@ -903,7 +915,6 @@ const char *GetPortStateString(uint8_t port)
     uint8_t hid_pending =
         (uint8_t)((status >> FPGA_STATUS_HID_PENDING_BIT) & 0x01u);
 
-    /* Disconnect wins over sticky kill (PlatformIO apply_fpga_port_to_state). */
     if (!attached)
     {
         return "DISCONNECTED";
@@ -920,7 +931,6 @@ const char *GetPortStateString(uint8_t port)
         }
         return "QUARANTINED";
     }
-    /* Pre-class attach under HID_CONFIRM must not look like AUTHORIZED. */
     if (!hid_mcu_approved[port] &&
         (ports[port].interfaceClass == 0x03u ||
          (ports[port].vendorID == 0u && ports[port].productID == 0u)))
@@ -930,14 +940,9 @@ const char *GetPortStateString(uint8_t port)
     return "AUTHORIZED";
 }
 
+/* Build and send one JSON telemetry frame for all four ports. */
 void SendJsonTelemetry(void)
 {
-    /*
-     * 4x PENDING_HID_CONFIRM frames are ~520+ bytes. Old code used 512 and
-     * required len < sizeof — once SPI filled real states, snprintf truncated,
-     * the length check failed, TX was skipped forever while LD2 kept blinking.
-     * No host ACK is involved; this is fire-and-forget.
-     */
     static char jsonBuffer[768];
 
     int len = snprintf(
@@ -971,6 +976,7 @@ void SendJsonTelemetry(void)
     (void)UartTx_Write((const uint8_t *)jsonBuffer, (uint16_t)len, 200U);
 }
 
+/* Extract a quoted string value for a JSON key. */
 int JsonGetString(const char *json, const char *key, char *out, size_t out_len)
 {
     char pattern[48];
@@ -1004,6 +1010,7 @@ int JsonGetString(const char *json, const char *key, char *out, size_t out_len)
     return i > 0U;
 }
 
+/* Extract an integer value for a JSON key. */
 int JsonGetInt(const char *json, const char *key, int *out)
 {
     char pattern[48];
@@ -1033,6 +1040,7 @@ int JsonGetInt(const char *json, const char *key, int *out)
     return 1;
 }
 
+/* Handle host commands: isolate, restore, clear_fault, confirm_hid. */
 void ProcessJsonCommand(const char *json)
 {
     char type_buf[16] = {0};

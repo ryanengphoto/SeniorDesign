@@ -56,9 +56,6 @@
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
-/**
-  * Initializes the Global MSP.
-  */
 void HAL_MspInit(void)
 {
 
@@ -69,22 +66,14 @@ void HAL_MspInit(void)
   __HAL_RCC_SYSCFG_CLK_ENABLE();
   __HAL_RCC_PWR_CLK_ENABLE();
 
-  /* Preemption bits needed so SysTick can run during USART IRQ / SPI waits. */
   HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
-
-  /* System interrupt init*/
 
   /* USER CODE BEGIN MspInit 1 */
 
   /* USER CODE END MspInit 1 */
 }
 
-/**
-  * @brief SPI MSP Initialization
-  * This function configures the hardware resources used in this example
-  * @param hspi: SPI handle pointer
-  * @retval None
-  */
+/* Configure SPI2 pins: PB13 SCK, PB14 MISO, PB15 MOSI. */
 void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -117,12 +106,7 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
 
 }
 
-/**
-  * @brief SPI MSP De-Initialization
-  * This function freeze the hardware resources used in this example
-  * @param hspi: SPI handle pointer
-  * @retval None
-  */
+/* Release SPI2 clocks and GPIOs. */
 void HAL_SPI_MspDeInit(SPI_HandleTypeDef* hspi)
 {
   if(hspi->Instance==SPI2)
@@ -147,12 +131,7 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef* hspi)
 
 }
 
-/**
-  * @brief UART MSP Initialization
-  * This function configures the hardware resources used in this example
-  * @param huart: UART handle pointer
-  * @retval None
-  */
+/* Configure USART1 pins PA9/PA10; IRQ left disabled (polled RX in main.c). */
 void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -176,7 +155,6 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    /* RX is polled in main.c (UartRx_Poll) — leave USART1 IRQ off. */
     HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);
     HAL_NVIC_DisableIRQ(USART1_IRQn);
 
@@ -188,12 +166,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 
 }
 
-/**
-  * @brief UART MSP De-Initialization
-  * This function freeze the hardware resources used in this example
-  * @param huart: UART handle pointer
-  * @retval None
-  */
+/* Release USART1 clocks, GPIOs, and IRQ. */
 void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
 {
   if(huart->Instance==USART1)

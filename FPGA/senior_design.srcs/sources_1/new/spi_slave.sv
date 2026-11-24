@@ -1,15 +1,8 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module: spi_slave
-// Purpose: SPI Mode 0 slave, 16-bit frames (Docs/fabric_slop.md §5).
-//          Write: {1, addr[6:0], data[7:0]}
-//          Read:  {0, addr[6:0], dummy} → MISO returns data on clocks 8..15
-//
-// Mode 0 (CPOL=0, CPHA=0): master samples MOSI/MISO on rising SCK.
-// Capture MOSI on rising; change MISO on falling so data is stable before
-// the next rising edge (STM32 hardware SPI). Updating MISO on rising caused
-// a 1-bit right shift on the wire (e.g. 0xC1 → 0x60).
+// SPI Mode 0 slave, 16-bit frames.
+// Sample MOSI on rising SCK; update MISO on falling (stable for next rise).
 //////////////////////////////////////////////////////////////////////////////////
 
 module spi_slave (
@@ -28,7 +21,7 @@ module spi_slave (
     input  logic [7:0] reg_rdata
 );
 
-    // --- sync SPI pins into clk ---
+    // Synchronize SPI pins into the fabric clock domain.
     logic [2:0] sclk_sync, cs_sync, mosi_sync;
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -47,13 +40,13 @@ module spi_slave (
     wire cs_active = ~cs_sync[1];
     wire mosi_s    = mosi_sync[1];
 
-    logic [4:0]  bit_cnt; // bits captured so far (increments on rise)
+    logic [4:0]  bit_cnt; // bits captured (increments on rising SCK)
     logic [15:0] shreg;
     logic        is_write;
     logic [7:0]  rd_byte;
     logic [2:0]  rd_idx;
 
-    // Combinational address while capturing the 8th bit
+    // Address as the 8th MOSI bit arrives (for early read prefetch).
     wire [6:0] addr_form = {shreg[5:0], mosi_s};
     assign reg_raddr = (cs_active && bit_cnt == 5'd7) ? addr_form :
                        (cs_active ? shreg[14:8] : 7'h00);
@@ -79,13 +72,13 @@ module spi_slave (
                 rd_idx  <= 3'd7;
                 is_write <= 1'b0;
             end else begin
-                // Rising SCK: sample MOSI (Mode 0), advance bit count, writes, latch read byte
+                // Rising SCK: sample MOSI, complete write / prefetch read data.
                 if (sclk_rise) begin
                     shreg   <= {shreg[14:0], mosi_s};
                     bit_cnt <= bit_cnt + 5'd1;
 
                     if (bit_cnt == 5'd7) begin
-                        // 8th bit completing — R/W is already in shreg[6] (frame bit15)
+                        // Header done: bit15 = R/W, bits[14:8] = address.
                         is_write <= shreg[6];
                         if (!shreg[6]) begin
                             rd_byte <= reg_rdata;
@@ -102,8 +95,7 @@ module spi_slave (
                     end
                 end
 
-                // Falling SCK: present next MISO bit for the upcoming rising sample
-                // After 8th rise bit_cnt==8 → drive MSB before 9th rise; … through bit_cnt==15 → LSB
+                // Falling SCK: drive next MISO bit for the following rising sample.
                 if (sclk_fall) begin
                     if (!is_write && bit_cnt >= 5'd8 && bit_cnt <= 5'd15) begin
                         miso   <= rd_byte[rd_idx];

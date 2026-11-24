@@ -1,13 +1,10 @@
-/// Host ↔ hub protocol models.
-///
-/// Keep aligned with `Docs/firmwmare_slop.md` and `Docs/fabric_slop.md`.
+/// Host ↔ MCU UART protocol.
 library;
 
 import 'dart:convert';
 import 'dart:typed_data';
 
-/// Lenient JSON helpers — UART peers may emit ints as doubles/strings.
-int? _jsonInt(Object? value) {
+/// Lenient JSON helpers
   if (value is int) {
     return value;
   }
@@ -80,7 +77,7 @@ enum ThreatCode {
   const ThreatCode(this.value);
   final int value;
 
-  /// Wire / log identifier (fabric §6).
+  /// Wire / log identifier.
   String get name => switch (this) {
         ThreatCode.noFault => 'NO_FAULT',
         ThreatCode.unauthorizedHid => 'UNAUTHORIZED_HID',
@@ -104,7 +101,7 @@ enum ThreatCode {
         ThreatCode.manualHostKill => 'Manual isolate',
       };
 
-  /// One-line explanation of what tripped (fabric threat table).
+  /// One-line explanation of what tripped.
   String get detail => switch (this) {
         ThreatCode.noFault => 'Normal operation',
         ThreatCode.unauthorizedHid =>
@@ -190,7 +187,7 @@ enum CommandType {
   isolatePort,
   restorePort,
   clearFault,
-  /// Operator confirm for HID-confirm hold → MCU SPI `Pn_CONTROL[5]`.
+  /// Operator confirm for HID-confirm hold.
   confirmHid;
 
   String get wireName => switch (this) {

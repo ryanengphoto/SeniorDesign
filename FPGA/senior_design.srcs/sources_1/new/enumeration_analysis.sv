@@ -1,12 +1,7 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module: enumeration_analysis  (midterm §6.3.4)
-// Purpose: EP0 GET_DESCRIPTOR parse → VID/PID/classes + suspicious-enum pulses.
-//          Walks all interface descriptors in a config blob (sequential).
-//          Presence is line J (line_attached), not packet activity.
-//          clear_telemetry (disconnect / long SE0) drops latched descriptors
-//          and counts toward a re-enumeration storm. No usb_reset_det.
+// EP0 GET_DESCRIPTOR parse: VID/PID/classes and suspicious-enum threat pulses.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -19,7 +14,6 @@ module enumeration_analysis #(
     input  logic        rst,
 
     input  logic        line_attached,
-    // 1-cycle: device unplugged (or long SE0) — drop latched descriptors.
     input  logic        clear_telemetry,
 
     input  logic        pkt_start,
@@ -45,7 +39,7 @@ module enumeration_analysis #(
     output logic [3:0]  msc_iface_count,
     output logic        attached,
 
-    // One-cycle threat pulses
+    // One-cycle threat pulses.
     output logic        desc_overflow_pulse,
     output logic        composite_hid_msc_pulse,
     output logic        multi_hid_pulse,
@@ -55,6 +49,7 @@ module enumeration_analysis #(
 
     assign attached = line_attached;
 
+    // Constants
     localparam [3:0] PID_SETUP = 4'b1101;
     localparam [3:0] PID_DATA0 = 4'b0011;
     localparam [3:0] PID_DATA1 = 4'b1011;
@@ -100,6 +95,7 @@ module enumeration_analysis #(
     assign iface_sub_b   = mem[scan_i + 6'd6];
     assign iface_proto_b = mem[scan_i + 6'd7];
 
+    // Clears a descriptor state concisely.
     task automatic clear_desc_state;
         state             <= ST_IDLE;
         setup_count       <= 4'd0;
@@ -145,7 +141,7 @@ module enumeration_analysis #(
             if (clear_telemetry) begin
                 clear_desc_state();
 
-                // Each disconnect / long-SE0 pulse is one re-enum event.
+                // Count disconnects inside the re-enum window.
                 if (reenum_window_cnt == 32'd0) begin
                     reenum_window_cnt <= REENUM_WINDOW_CYCLES_P;
                     reenum_count      <= 4'd1;
@@ -163,11 +159,12 @@ module enumeration_analysis #(
                 else
                     reenum_count <= 4'd0;
 
-                // New SETUP on EP0 aborts any in-flight descriptor collection
+                // New EP0 SETUP aborts in-flight descriptor collection.
                 if (pkt_end && crc_ok && (pid == PID_SETUP) && (endp == 4'h0)) begin
                     state       <= ST_SETUP_DATA;
                     setup_count <= 4'd0;
                 end else begin
+                    // Main FSM to parse descriptors of startup data.
                     case (state)
                         ST_IDLE: ;
 
@@ -185,7 +182,7 @@ module enumeration_analysis #(
                                     setup[1] == REQ_GET_DESCRIPTOR) begin
                                     want_dtype <= setup[3];
                                     if (setup[3] == DT_DEVICE) begin
-                                        want_len <= 8'd18;
+                                        want_len <= 8'd18; // need 18 bytes next.
                                         got_len  <= 8'd0;
                                         state    <= ST_WAIT_DESC;
                                     end else if (setup[3] == DT_CONFIGURATION) begin
@@ -199,8 +196,7 @@ module enumeration_analysis #(
                                         else
                                             want_len <= setup[6];
                                         got_len <= 8'd0;
-                                        // Fresh config walk — drop prior HID/intf latch
-                                        // so MSC-then-HID / re-config is re-evaluated.
+                                        // New config GET resets interface walk state.
                                         hid_iface_count   <= 4'd0;
                                         msc_iface_count   <= 4'd0;
                                         hid_keyboard_seen <= 1'b0;
@@ -225,14 +221,14 @@ module enumeration_analysis #(
                         ST_DESC_DATA: begin
                             if (data_valid && got_len < 8'd64) begin
                                 mem[got_len[5:0]] <= data;
-                                got_len           <= got_len + 8'd1;
+                                got_len           <= got_len + 8'd1; // increment length on each byte until done.
                             end
 
                             if (pkt_end && is_data) begin
                                 if (!crc_ok) begin
                                     state <= ST_IDLE;
-                                // Host wLength met, or config short-packet that already
-                                // carries the full device wTotalLength (≤64B buffer).
+                                // Done when host wLength is met, or short config packet
+                                // already contains full wTotalLength (≤64 B buffer).
                                 end else if ((got_len >= want_len) ||
                                              ((want_dtype == DT_CONFIGURATION) &&
                                               (got_len >= 8'd4) &&
@@ -286,9 +282,6 @@ module enumeration_analysis #(
                                 end
                                 if (iface_class_b == `USB_CLASS_HID) begin
                                     hid_iface_count <= hid_iface_count + 4'd1;
-                                    // Any HID interface requires operator approve
-                                    // under HID_CONFIRM. Timing filter still looks
-                                    // for boot-keyboard reports after approve.
                                     if (!hid_keyboard_seen) begin
                                         hid_keyboard_seen  <= 1'b1;
                                         hid_keyboard_pulse <= 1'b1;

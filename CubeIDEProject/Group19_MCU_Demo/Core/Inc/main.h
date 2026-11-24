@@ -57,17 +57,18 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+/* User button (Nucleo B1). */
 #define B1_Pin GPIO_PIN_13
 #define B1_GPIO_Port GPIOC
-/* USART1 — same pins as Black Pill / carrier CP2102 path (not ST-LINK VCP). */
+/* USART1 TX/RX to host UART. */
 #define USART_TX_Pin GPIO_PIN_9
 #define USART_TX_GPIO_Port GPIOA
 #define USART_RX_Pin GPIO_PIN_10
 #define USART_RX_GPIO_Port GPIOA
-/* SPI2 soft CS — frees PA5 for LD2 (see wiring.md Nucleo section). */
+/* SPI2 software chip-select to FPGA. */
 #define SPI_CS_Pin GPIO_PIN_12
 #define SPI_CS_GPIO_Port GPIOB
-/* NUCLEO-F411RE green user LED (LD2 / D13). Active-high (unlike Black Pill PC13). */
+/* Nucleo LD2 status LED (active-high). */
 #define LD2_Pin GPIO_PIN_5
 #define LD2_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13

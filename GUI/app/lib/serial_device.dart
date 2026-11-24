@@ -10,17 +10,9 @@ import 'package:meta/meta.dart';
 import 'hub_device.dart';
 import 'protocol.dart';
 
-/// Desktop UART backend — newline-delimited JSON at 115200 8-N-1.
-///
-/// Prefers [flutter_libserialport] (real USB–UART). Falls back to raw
-/// `dart:io` file I/O when libserialport rejects the path (common for PTY
-/// peers used with `mcu_sim` — still a **dummy** peer, not the carrier PCB).
-///
-/// Link loss (unplug, peer exit, hub power loss / silent UART) sets
-/// `serial_error` / `serial_reconnecting` and never throws into UI handlers.
-/// Auto-reconnect with backoff; [reconnect] forces an immediate retry.
-///
-/// Not available on Flutter web.
+/// Desktop UART backend for newline-delimited JSON telemetry/commands.
+/// Uses libserialport when possible; falls back to dart:io for PTY paths.
+/// Link loss never throws into UI handlers; reconnect uses backoff.
 class SerialDevice implements HubDevice {
   SerialDevice({
     required String portPath,
@@ -39,13 +31,13 @@ class SerialDevice implements HubDevice {
   @override
   int get baudRate => _baudRate;
 
-  /// No valid frame within this window → treat link as dead (hub silent / power).
+  /// No valid frame in this window, treat the link as dead.
   final Duration telemetryTimeout;
 
-  /// After open, wait this long for the first frame before failing.
+  /// Grace period after open before requiring the first frame.
   final Duration initialOpenGrace;
 
-  /// Windows COM10+ needs `\\.\COMn`; Linux/WSL paths pass through.
+  /// Normalize Windows COM paths (`COM10+` → `\\.\COMn`).
   static String normalizePortPath(String path) {
     final trimmed = path.trim();
     final prefixed =
@@ -136,7 +128,7 @@ class SerialDevice implements HubDevice {
   @override
   bool get isPolled => false;
 
-  /// Enumerate host serial ports (COM / ttyUSB / …). Safe if libserialport fails.
+  /// Enumerate host serial ports (COM / tty…).
   static List<String> enumeratePorts() {
     try {
       final ports = SerialPort.availablePorts;
@@ -158,7 +150,7 @@ class SerialDevice implements HubDevice {
     if (available.contains(portPath) || portPath.isEmpty) {
       return available;
     }
-    // Keep the configured path visible even if temporarily missing.
+    // Keep the configured path even if it is temporarily missing.
     return [...available, portPath]..sort();
   }
 
@@ -223,7 +215,7 @@ class SerialDevice implements HubDevice {
   @override
   int get elapsedMs => DateTime.now().difference(_startTime).inMilliseconds;
 
-  /// True when using dart:io PTY/file transport instead of libserialport.
+  /// True when using dart:io instead of libserialport.
   bool get usingIoFallback => _usingIoFallback;
 
   bool get _transportOpen =>
@@ -258,7 +250,7 @@ class SerialDevice implements HubDevice {
     _openTransport(resetBackoff: true);
   }
 
-  /// Idle until the operator picks a COM/tty in the UI.
+  /// Idle until the operator selects a port.
   void _awaitPortSelection() {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -368,12 +360,9 @@ class SerialDevice implements HubDevice {
       config.parity = SerialPortParity.none;
       config.setFlowControl(SerialPortFlowControl.none);
       port.config = config;
-      // Do not dispose config here: SerialPort retains config in its internal
-      // _config field and automatically calls _config.dispose() during
-      // port.dispose(). Calling dispose here causes a native CRT double-free
-      // assert (is_block_type_valid) upon port cleanup/reconnect.
+      // SerialPort owns config after assign; disposing here double-frees on port.dispose().
     } on Object {
-      // Only dispose if assigning to port.config failed and port did not take ownership.
+      // Assign failed — dispose config ourselves.
       try {
         config?.dispose();
       } on Object {
@@ -616,7 +605,7 @@ class SerialDevice implements HubDevice {
     );
   }
 
-  /// Returns false if the link is down or the write failed (never throws).
+  /// Returns false if the link is down or the write failed.
   bool _writeCommand(CommandType cmd, int portId) {
     if (_disposed || _error || !_transportOpen) {
       return false;
@@ -658,7 +647,6 @@ class SerialDevice implements HubDevice {
 
   void _onBytes(Uint8List data) {
     if (_disposed || _error) {
-      // Drop late bytes from a dying reader after we already failed.
       return;
     }
     try {
@@ -674,14 +662,11 @@ class SerialDevice implements HubDevice {
         }
       }
     } on Object catch (e) {
-      // TelemetryLineBuffer already swallows parse errors; this is belt-and-suspenders.
       _fail('Serial decode error: $e');
     }
   }
 
-  /// Test-only: feed RX bytes as if they arrived on the UART.
-  /// Bypasses link-up / error gates so garbage and good frames can be exercised
-  /// without opening a real COM port.
+  /// Test-only: inject RX bytes without opening a real port.
   @visibleForTesting
   void injectRxForTest(List<int> data) {
     for (final frame in _rxLines.push(data)) {
@@ -729,14 +714,14 @@ class SerialDevice implements HubDevice {
     final alreadyDown = _error && !_transportOpen;
     _error = true;
     _errorMessage = message;
-    // Drop last frame so the UI cannot show AUTHORIZED/PENDING while COM is dead.
+    // Clear last frame so the UI does not show stale port state.
     _latest = null;
     _lastFrameAt = null;
     if (!alreadyDown) {
       _closeTransportOnly();
     }
 
-    // Only allow one automatic reconnect attempt before stopping and waiting for user.
+    // One automatic reconnect, then wait for the operator.
     if (!scheduleReconnect || _reconnectAttempt >= 1) {
       _reconnectTimer?.cancel();
       _reconnectTimer = null;
@@ -745,7 +730,6 @@ class SerialDevice implements HubDevice {
       return;
     }
 
-    // Keep an in-flight backoff timer; only start one if idle.
     if (_reconnectTimer != null) {
       _reconnecting = true;
       _notifyStatus();
@@ -795,7 +779,7 @@ class _IoReadSpawn {
   final SendPort sendPort;
 }
 
-/// Blocking reader isolate for PTY / raw tty paths libserialport rejects.
+/// Blocking reader isolate for PTY / raw tty paths.
 void _ioReadIsolateMain(_IoReadSpawn args) {
   RandomAccessFile? raf;
   try {

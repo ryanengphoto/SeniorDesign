@@ -1,12 +1,7 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module: isolation_controller
-// Purpose: Fast-path kill latch for one sniffer channel.
-//          Latches kill + threat_code on threat_pulse until clear_fault
-//          (or rst). manual_kill forces THREAT_MANUAL_HOST_KILL.
-//
-// Threat codes: Docs/fabric_slop.md §6 / senior_design defines.svh
+// Per-port kill latch until manual clear_fault is received.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -36,14 +31,12 @@ module isolation_controller (
             kill        <= 1'b1;
             threat_code <= `THREAT_MANUAL_HOST_KILL;
         end else if (threat_pulse && !kill) begin
-            // Sticky until cleared; ignore further codes while isolated.
+            // First threat sticks until clear_fault.
             kill        <= 1'b1;
             threat_code <= threat_code_in;
         end
     end
 
-    // Sim-only SVA checker (XSim 2018.2: file-scope bind is broken / VRFC 10-946).
-    // Guard VERILATOR: coverage sidecar skips this; XSim still sees translate_off block.
 `ifndef VERILATOR
     // synthesis translate_off
     isolation_controller_sva u_isol_sva (

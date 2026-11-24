@@ -1,23 +1,17 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module Name:   main_wrapper
-// Description:
-//   Cmod S7 board top: 12→48 MHz MMCM, sniffer_wrapper, register_file, SPI
-//   slave. LEDs show per-port kill; btn_rst / btn_clear for demo control.
-//   USB D+/D− taps and mux/efuse kills on PIO headers.
+// Cmod S7 top: MMCM, sniffers, register file, SPI slave, kill/LED I/O.
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
 
 module main_wrapper #(
-    // Sim: skip MMCM (drive clk_12m at 48 MHz in the TB). Board: leave 0.
+    // 1 = skip MMCM in sim (drive clk_12m at 48 MHz). Board builds: 0.
     parameter bit SIM_CLK_BYPASS    = 1'b0,
-    // Cycles after lock before auto HID self-stim (~20 ms @ 48 MHz on board).
+    // Delay after lock before optional port0 self-stim (~20 ms @ 48 MHz).
     parameter int BOOT_STIM_CYCLES  = 1_000_000,
-    // 1 = boot HID selfstim demo on port0 (LEDs / midterm). 0 = live taps only
-    // (no dummy VID/PID/kill) — use for USB breakout / Rubber Ducky bring-up:
-    //   make -C FPGA build ENABLE_SELFSTIM=0
+    // 1 = onboard HID self-stim on port0; 0 = live D+/D− taps only.
     parameter bit ENABLE_SELFSTIM   = 1'b1
 ) (
     input  logic clk_12m,
@@ -57,8 +51,9 @@ module main_wrapper #(
 
     logic clk_48m;
     logic mmcm_locked;
-    logic rst_btn_sync0, rst_btn_sync1;
-    logic clr_btn_sync0, clr_btn_sync1;
+    // Button synchronizers; rst starts asserted until MMCM lock.
+    logic rst_btn_sync0 = 1'b1, rst_btn_sync1 = 1'b1;
+    logic clr_btn_sync0 = 1'b0, clr_btn_sync1 = 1'b0;
     logic rst;
 
     generate
@@ -75,7 +70,7 @@ module main_wrapper #(
         end
     endgenerate
 
-    // Async buttons → 48 MHz domain (btn high when pressed)
+    // Synchronize async buttons into the 48 MHz domain.
     always_ff @(posedge clk_48m) begin
         rst_btn_sync0 <= btn_rst;
         rst_btn_sync1 <= rst_btn_sync0;
@@ -118,7 +113,7 @@ module main_wrapper #(
     logic [2:0]            policy_mode_spi [`NUM_PORTS-1:0];
     logic [`NUM_PORTS-1:0] approve_hid_spi;
 
-    // On-FPGA demo stimulus (no carrier required): drive port0 after lock.
+    // Optional onboard self-stim for port0.
     logic        stim_oe, stim_dp, stim_dn;
     logic        stim_busy, stim_done;
     logic        stim_start;
@@ -153,19 +148,19 @@ module main_wrapper #(
         .tx_dn  (stim_dn)
     );
 
-    // Live-tap build never muxes selfstim onto port0 (even if stim_oe glitches).
+    // Self-stim when enabled and driving.
     assign dp[0] = (ENABLE_SELFSTIM && stim_oe) ? stim_dp : p0_dp_tap;
     assign dm[0] = (ENABLE_SELFSTIM && stim_oe) ? stim_dn : p0_dm_tap;
     assign dp[3:1] = {p3_dp_tap, p2_dp_tap, p1_dp_tap};
     assign dm[3:1] = {p3_dm_tap, p2_dm_tap, p1_dm_tap};
 
-    // btn_clear clears faults (OR with SPI clear); does not approve HID
+    // Board clear ORs with SPI clear_fault.
     assign clear_fault = clear_fault_spi | {`NUM_PORTS{clr_btn_sync1}};
     assign manual_kill = manual_kill_spi;
     assign policy_mode = policy_mode_spi;
     assign approve_hid = approve_hid_spi;
 
-    // Isolate: mux enable active-low → high when killed; cut eFuse when killed
+    // Kill asserts mux_en_n and deasserts eFuse enable.
     assign p0_mux_en_n = kill[0];
     assign p1_mux_en_n = kill[1];
     assign p2_mux_en_n = kill[2];
@@ -176,8 +171,7 @@ module main_wrapper #(
     assign p3_efuse_en = ~kill[3];
 
     assign led   = kill;
-    assign led_r = ~(|kill);                 // red = any kill (active-low)
-    // Demo bit: green while stim runs/done. Live-tap bit: green idle (no stim).
+    assign led_r = ~(|kill);  // any kill
     assign led_g = ENABLE_SELFSTIM ? ~(stim_busy || stim_done) : 1'b0;
     assign led_b = 1'b1;
 

@@ -8,12 +8,8 @@ import 'mock_device.dart';
 import 'protocol.dart';
 
 /// Orchestrates hub telemetry + command handling.
-///
-/// Default is in-process [MockDevice]. Pass a [HubDevice] or use
-/// [HubService.fromEnvironment] for `--dart-define=HUB_MODE=serial`.
-///
-/// Security events are persisted via [EventLogStore] (Drift) and reloaded
-/// on [start] (last [maxEvents]).
+/// Security events are persisted via Drift and reloaded
+/// on start.
 class HubService {
   HubService({
     HubDevice? device,
@@ -37,10 +33,10 @@ class HubService {
   final ListQueue<SecurityEvent> _events = ListQueue();
   final Map<int, (PortState, int)> _lastSnapshot = {};
 
-  /// After confirm_hid, ignore late PENDING (not the real attach→pending wait).
+  /// Ignore late PENDING frames right after confirm_hid.
   final Set<int> _stalePendingAfterConfirm = {};
 
-  /// After isolate_port, ignore late AUTHORIZED until restore (or real unblock).
+  /// Ignore late AUTHORIZED frames right after isolate_port.
   final Set<int> _staleAuthorizedAfterIsolate = {};
 
   final _telemetryController = StreamController<TelemetryFrame>.broadcast();
@@ -84,7 +80,7 @@ class HubService {
     await _eventLog.open();
     final prior = await _eventLog.loadRecent(maxEvents);
     _events.clear();
-    // Skip legacy UART/COM/baud host-link rows — not security events.
+    // Drop legacy host-link rows; keep security events only.
     for (final event in prior) {
       if (event.isSystem) {
         if (event.id != null) {
@@ -96,7 +92,7 @@ class HubService {
     }
     _emitEvents();
 
-    // Subscribe before start so broadcast UART frames are not dropped.
+    // Subscribe before start so UART frames are not dropped.
     _lastMode = _device.mode;
     _statusSub = _device.statusChanges.listen((_) => _onDeviceStatus());
     if (!_device.isPolled) {
@@ -153,7 +149,7 @@ class HubService {
     }
   }
 
-  /// Force serial reopen (no-op for mock). Safe to call from UI.
+  /// Reopen the serial link (no-op for mock).
   void reconnect() {
     if (!_device.supportsReconnect) {
       return;
@@ -161,15 +157,15 @@ class HubService {
     try {
       _device.reconnect();
     } on Object {
-      // Header banner shows link errors; do not log host/UART status.
+      // Link errors surface on the connection banner.
     }
     _onDeviceStatus();
   }
 
-  /// Host COM / tty paths for the serial picker (empty in mock).
+  /// Available COM / tty paths for the port picker.
   List<String> listSerialPorts() => _device.listSerialPorts();
 
-  /// Switch UART device without restarting the app (serial only).
+  /// Switch UART device without restarting the app.
   void setSerialPort(String portPath) {
     if (!_device.supportsPortSelect) {
       return;
@@ -178,12 +174,12 @@ class HubService {
       _device.setSerialPort(portPath);
       latestTelemetry = null;
     } on Object {
-      // Header banner shows link errors; do not log host/UART status.
+      // Link errors surface on the connection banner.
     }
     _onDeviceStatus();
   }
 
-  /// Change UART baud without restarting the app (serial only).
+  /// Change UART baud without restarting the app.
   void setBaudRate(int baud) {
     if (!_device.supportsBaudSelect) {
       return;
@@ -195,7 +191,7 @@ class HubService {
       _device.setBaudRate(baud);
       latestTelemetry = null;
     } on Object {
-      // Header banner shows link errors; do not log host/UART status.
+      // Link errors surface on the connection banner.
     }
     _onDeviceStatus();
   }
@@ -205,7 +201,7 @@ class HubService {
     if (next != _lastMode) {
       _lastMode = next;
     }
-    // Serial link lost: clear frozen port cards (last JSON before CP2102 went quiet).
+    // Link lost: clear frozen port cards from the last good telemetry.
     final lower = next.toLowerCase();
     if (lower.contains('error') || lower.contains('reconnect')) {
       if (latestTelemetry != null) {
@@ -256,14 +252,12 @@ class HubService {
     );
     unawaited(_appendEvent(event));
 
-    // Log the operator command immediately; leave snapshot on the prior
-    // hardware state so the next telemetry frame can log "Changed to …".
+    // Log the command now; next telemetry frame records the state change.
     switch (cmd) {
       case CommandType.confirmHid:
         _stalePendingAfterConfirm.add(port);
       case CommandType.isolatePort:
         _staleAuthorizedAfterIsolate.add(port);
-        // Isolate ends any prior HID-confirm session; don't suppress the next PENDING.
         _stalePendingAfterConfirm.remove(port);
       case CommandType.restorePort:
         _staleAuthorizedAfterIsolate.remove(port);
@@ -285,13 +279,12 @@ class HubService {
       if (_lastSnapshot.isEmpty) {
         _recordInitialFrom(frame);
       }
-      // Frames clear device error flags; sync mode for the banner.
       if (_lastMode != _device.mode) {
         _onDeviceStatus();
       }
       _publishFrame(frame);
     } on Object {
-      // Never let a bad frame tear down the console UI.
+      // Bad frames must not tear down the UI.
     }
   }
 
@@ -358,10 +351,25 @@ class HubService {
       if (port.state == PortState.disconnected) {
         _stalePendingAfterConfirm.remove(port.port);
         _staleAuthorizedAfterIsolate.remove(port.port);
+        // Unplug: log disconnect only (sticky FPGA threat already logged).
+        if (prevState != PortState.disconnected) {
+          unawaited(
+            _appendEvent(
+              SecurityEvent(
+                at: DateTime.now(),
+                port: port.port,
+                threatCode: ThreatCode.noFault.value,
+                threatName: ThreatCode.nameFor(ThreatCode.noFault.value),
+                state: PortState.disconnected,
+                message: 'Device disconnected',
+              ),
+            ),
+          );
+        }
+        continue;
       }
 
       final threat = ThreatCode.fromValue(port.threatCode);
-      // Port identity lives in the event card label — keep messages port-free.
       final String message;
       if (threat == ThreatCode.keystrokeBurst &&
           port.state == PortState.quarantined) {
@@ -373,14 +381,11 @@ class HubService {
         message = 'HID device waiting for operator confirm';
       } else if (port.state == PortState.authorized &&
           prevState == PortState.disconnected) {
-        // Attached / enumerated — not the same as operator HID confirm.
         message = 'Device attached';
       } else if (port.threatCode > 0 &&
           threat != ThreatCode.manualHostKill) {
-        // Summary only — no fabric detail subtitle in the sidebar.
         message = threat.summary;
       } else {
-        // Includes MANUAL_BLOCKED / AUTHORIZED after confirm or restore.
         message = 'Changed to ${port.state.wireName}';
       }
 
@@ -420,7 +425,7 @@ class HubService {
   }
 
   Future<void> _appendEvent(SecurityEvent event) async {
-    // Host/UART link status belongs in the header banner, not the security log.
+    // Link-status rows stay on the banner, not the security log.
     if (event.isSystem) {
       return;
     }

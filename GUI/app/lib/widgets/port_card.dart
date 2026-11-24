@@ -4,8 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../protocol.dart';
 import '../theme.dart';
 import '../usb_names.dart';
-import 'threat_badge.dart';
 
+/// One downstream port: identity, VID/PID/class metrics, Isolate/Restore.
 class PortCard extends StatelessWidget {
   const PortCard({
     super.key,

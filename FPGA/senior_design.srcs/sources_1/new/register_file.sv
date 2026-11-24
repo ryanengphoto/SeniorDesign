@@ -1,15 +1,10 @@
 `timescale 1ns / 1ps
 
 //////////////////////////////////////////////////////////////////////////////////
-// Module: register_file
-// Purpose: MCU-visible status/control map (Docs/fabric_slop.md §5).
-//          Sniffer state is mirrored every cycle.
-//          Pn_CONTROL[7] manual_kill (level)
-//          Pn_CONTROL[6] clear_fault (pulse)
-//          Pn_CONTROL[5] approve_hid (pulse)
-//          Pn_CONTROL[2:0] policy mode
-//          Pn_THREAT_DETAIL at +0x08 (nibble; meaningful when threat is 0x4)
-// Notes:   Bring-up uses one clock (same as sniffers). 48↔100 CDC later.
+// MCU SPI address map for control and status.
+// CONTROL[7]=manual_kill, [6]=clear_fault pulse, [5]=approve_hid pulse, [2:0]=policy.
+// Implementation: SYS/Pn_CONTROL are latched flops; status/VID/PID/class/threat
+// banks are combinational mirrors of live sniffer outputs (not stored copies).
 //////////////////////////////////////////////////////////////////////////////////
 
 `include "defines.svh"
@@ -24,6 +19,7 @@ module register_file (
     input  logic [6:0] reg_raddr,
     output logic [7:0] reg_rdata,
 
+    // Live sniffer state, read path muxes these each cycle.
     input  logic [`NUM_PORTS-1:0] kill,
     input  logic [3:0]            threat_code   [`NUM_PORTS-1:0],
     input  logic [3:0]            threat_detail [`NUM_PORTS-1:0],
@@ -39,6 +35,7 @@ module register_file (
     output logic [`NUM_PORTS-1:0] approve_hid
 );
 
+    // Latched control only, status banks are not duplicated here.
     logic [7:0] sys_control;
     logic [7:0] p_control [0:`NUM_PORTS-1];
 
@@ -55,7 +52,7 @@ module register_file (
         pack_spi_status = 8'h00;
         pack_spi_status[7]   = kill_i;
         pack_spi_status[6]   = mid_status[`PORT_STATUS_ATTACHED_BIT];
-        pack_spi_status[5]   = 1'b0; // configured (unused)
+        pack_spi_status[5]   = 1'b0; // reserved
         pack_spi_status[`SPI_STATUS_HID_PENDING_BIT] =
             mid_status[`PORT_STATUS_HID_PENDING_BIT];
         pack_spi_status[3:0] = threat_i;
@@ -78,7 +75,7 @@ module register_file (
                 if (reg_waddr == `ADDR_SYS_CONTROL)
                     sys_control <= reg_wdata;
 
-                // Pn_CONTROL at 0x10 / 0x20 / 0x30 / 0x40
+                // Port control registers at 0x10 / 0x20 / 0x30 / 0x40.
                 if (w_is_port && reg_waddr[3:0] == 4'h0) begin
                     p_control[w_port] <= reg_wdata;
                     if (reg_wdata[`CTRL_CLEAR_FAULT_BIT])
@@ -100,6 +97,8 @@ module register_file (
     assign policy_mode[2] = p_control[2][2:0];
     assign policy_mode[3] = p_control[3][2:0];
 
+    // Combinational mirror: MCU SPI reads see current sniffer state immediately and does not
+    // wait another cycle for flops.
     always_comb begin
         reg_rdata = 8'h00;
         if (reg_raddr == `ADDR_SYS_STATUS)
