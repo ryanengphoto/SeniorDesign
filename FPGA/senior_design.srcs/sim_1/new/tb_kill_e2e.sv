@@ -42,15 +42,11 @@ module tb_kill_e2e;
         end
     endgenerate
 
+    // Driven only by register_file (SPI). Reset policy = storage-only (0).
     logic [`NUM_PORTS-1:0] clear_fault;
     logic [`NUM_PORTS-1:0] manual_kill;
     logic [2:0]            policy_mode [`NUM_PORTS-1:0];
     logic [`NUM_PORTS-1:0] approve_hid;
-    initial begin : init_policy
-        for (int pi = 0; pi < `NUM_PORTS; pi++)
-            policy_mode[pi] = `CTRL_POLICY_STORAGE_ONLY;
-        approve_hid = '0;
-    end
 
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code [`NUM_PORTS-1:0];

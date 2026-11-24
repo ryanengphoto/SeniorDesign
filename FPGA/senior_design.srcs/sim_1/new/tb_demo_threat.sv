@@ -308,7 +308,8 @@ module tb_demo_threat;
             $display("HID kill OK threat=%0h port_status=%02h",
                      threat_code[0], port_status[0]);
 
-        // Sticky until clear
+        // Sticky while HID still enumerated: clear releases then unauthorized_hid
+        // re-arms (same pattern as suspicious_hold). Permanent clear needs disconnect.
         repeat (32) @(posedge clk_48m);
         if (!kill[0]) begin
             $error("kill not sticky"); errors++;
@@ -317,11 +318,12 @@ module tb_demo_threat;
         @(posedge clk_48m);
         clear_fault[0] = 1'b0;
         repeat (4) @(posedge clk_48m);
-        if (kill[0] || threat_code[0] !== `THREAT_NO_FAULT) begin
-            $error("clear_fault failed kill=%0b threat=%0h", kill[0], threat_code[0]);
+        if (!kill[0] || threat_code[0] !== `THREAT_UNAUTHORIZED_HID) begin
+            $error("clear while HID present should re-arm 0x1 kill=%0b threat=%0h",
+                   kill[0], threat_code[0]);
             errors++;
         end else
-            $display("clear_fault OK");
+            $display("clear_fault re-arm while HID present OK");
 
         if (errors == 0) $display("tb_demo_threat: PASS");
         else             $display("tb_demo_threat: FAIL (%0d errors)", errors);

@@ -290,4 +290,46 @@ void main() {
 
     hub.dispose();
   });
+
+  test('unplug after keystroke burst does not re-log the sticky threat', () async {
+    final device = ScriptedDevice(initialPorts: _four(_port(0, PortState.authorized)));
+    final hub = HubService(device: device, eventLog: memoryEventLogStore());
+    await hub.start();
+    device.emit();
+    await _settle();
+
+    device.setPort(
+      _port(
+        0,
+        PortState.quarantined,
+        threat: ThreatCode.keystrokeBurst.value,
+      ),
+    );
+    device.emit();
+    await _settle();
+
+    // FPGA keeps threat nibble sticky after SE0; MCU still reports DISCONNECTED.
+    device.setPort(
+      _port(
+        0,
+        PortState.disconnected,
+        threat: ThreatCode.keystrokeBurst.value,
+        vid: '0x0000',
+        pid: '0x0000',
+      ),
+    );
+    device.emit();
+    await _settle();
+
+    final messages = hub.events.map((e) => e.message).toList();
+    expect(messages, contains('${ThreatCode.keystrokeBurst.summary} — quarantined'));
+    expect(messages, contains('Device disconnected'));
+    expect(
+      messages.where((m) => m == ThreatCode.keystrokeBurst.summary),
+      isEmpty,
+      reason: 'sticky threat on disconnect must not look like a second burst',
+    );
+
+    hub.dispose();
+  });
 }

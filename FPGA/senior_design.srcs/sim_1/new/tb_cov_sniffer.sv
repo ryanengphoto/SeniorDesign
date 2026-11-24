@@ -558,7 +558,7 @@ module tb_cov_sniffer;
             $error("HID kill expect 0x1 got kill=%0b threat=%0h", kill, threat_code);
             errors++;
         end
-        // HID-allowed instance: latch HID class, hold with 0x3 (not storage 0x1)
+        // HID-allowed: latch HID class, no auto hold (0x3 is post-approve cooldown only)
         if (!intf_np_valid || intf_np !== 8'h03) begin
             $error("no-policy intf=%h valid=%0b", intf_np, intf_np_valid);
             errors++;
@@ -566,10 +566,11 @@ module tb_cov_sniffer;
         if (kill_np && threat_np === `THREAT_UNAUTHORIZED_HID) begin
             $error("HID-allowed must not use UNAUTHORIZED_HID 0x1"); errors++;
         end
-        if (!kill_np || threat_np !== `THREAT_COOLDOWN_BURST) begin
-            $error("HID-allowed expect hold 0x3 kill=%0b threat=%0h",
+        if (kill_np || threat_np !== `THREAT_NO_FAULT) begin
+            $error("HID-allowed expect no hold kill=%0b threat=%0h",
                    kill_np, threat_np); errors++;
-        end
+        end else
+            $display("HID-allowed no auto-hold OK");
 
         clear_and_approve_np();
 

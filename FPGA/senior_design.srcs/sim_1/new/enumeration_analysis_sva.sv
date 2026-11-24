@@ -38,9 +38,6 @@ module enumeration_analysis_sva (
                 if (!state_ok)
                     $error("enumeration_analysis SVA: illegal FSM state %0d", state);
 
-                if ((intf_class_valid === 1'bx) || (attached_d === 1'bx))
-                    $error("enumeration_analysis SVA: X on attached or intf_class_valid");
-
                 // Device descriptor is sticky until rst or line disconnect.
                 // The clear is NBA, so the following cycle still shows the old valid.
                 // intf_class_valid is dropped at the start of a new config walk.

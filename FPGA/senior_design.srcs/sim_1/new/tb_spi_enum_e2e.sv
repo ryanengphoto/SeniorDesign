@@ -34,13 +34,9 @@ module tb_spi_enum_e2e;
 
     logic [`NUM_PORTS-1:0] clear_fault;
     logic [`NUM_PORTS-1:0] manual_kill;
+    // Driven only by register_file (SPI). Reset policy = storage-only (0).
     logic [2:0]            policy_mode [`NUM_PORTS-1:0];
     logic [`NUM_PORTS-1:0] approve_hid;
-    initial begin : init_policy
-        for (int pi = 0; pi < `NUM_PORTS; pi++)
-            policy_mode[pi] = `CTRL_POLICY_STORAGE_ONLY;
-        approve_hid = '0;
-    end
 
     logic [`NUM_PORTS-1:0] kill;
     logic [3:0]            threat_code [`NUM_PORTS-1:0];
@@ -428,19 +424,20 @@ module tb_spi_enum_e2e;
         end else
             $display("SYS_STATUS after HID=%02h OK", rd);
 
-        // Clear via SPI Pn_CONTROL[6]
+        // Clear via SPI Pn_CONTROL[6]: while HID still present on storage-only,
+        // unauthorized_hid re-arms immediately (threat stays 0x1).
         spi_write(`ADDR_P0_CONTROL, 8'h40);
         repeat (16) @(posedge clk_48m);
         spi_write(`ADDR_P0_CONTROL, 8'h00);
         repeat (8) @(posedge clk_48m);
-        if (kill[0]) begin
-            $error("kill sticky after SPI clear"); errors++;
+        if (!kill[0]) begin
+            $error("kill should re-arm after SPI clear while HID present"); errors++;
         end
         spi_read(`ADDR_P0_STATUS, rd);
-        if (rd[7] || rd[3:0] !== `THREAT_NO_FAULT) begin
-            $error("P0_STATUS after clear=%02h", rd); errors++;
+        if (!rd[7] || rd[3:0] !== `THREAT_UNAUTHORIZED_HID) begin
+            $error("P0_STATUS after clear re-arm=%02h", rd); errors++;
         end else
-            $display("P0_STATUS after clear=%02h OK", rd);
+            $display("P0_STATUS after clear re-arm=%02h OK", rd);
 
         // Telemetry retained after clear
         expect_spi(`ADDR_P0_VID_LOW,   8'h34, "VIDL_retained");

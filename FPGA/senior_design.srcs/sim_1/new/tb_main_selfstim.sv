@@ -115,7 +115,13 @@ module tb_main_selfstim;
         btn_rst = 1'b0;
         repeat (8) @(posedge dut.clk_48m);
 
-        // Wait for port0 kill LED (selfstim finishes HID config)
+        // RF reset policy is storage-only; seed HID-confirm before selfstim HID class
+        // so quarantine uses pending hold (threat 0), not UNAUTHORIZED_HID 0x1.
+        spi_write(`ADDR_P0_CONTROL, {5'b0, `CTRL_POLICY_HID_CONFIRM});
+        repeat (16) @(posedge dut.clk_48m);
+
+        // HID-confirm asserts kill at attach (before enum). Wait for LED, then
+        // for selfstim descriptor telemetry before SPI checks.
         timeout = 0;
         while (led[0] !== 1'b1 && timeout < 500000) begin
             @(posedge clk_12m);
@@ -126,6 +132,24 @@ module tb_main_selfstim;
             errors++;
         end else
             $display("led[0] kill OK (timeout_cnt=%0d)", timeout);
+
+        timeout = 0;
+        rd = 8'h00;
+        while (rd !== 8'h03 && timeout < 500000) begin
+            spi_read(`ADDR_P0_INT_CLASS, rd);
+            timeout++;
+        end
+        if (rd !== 8'h03) begin
+            $error("timeout waiting for selfstim INTCLASS (last=%02h)", rd);
+            errors++;
+        end else
+            $display("SPI INTCLASS=%02h OK (wait_cnt=%0d)", rd, timeout);
+
+        spi_read(`ADDR_P0_VID_HIGH, rd);
+        if (rd !== 8'h12) begin
+            $error("VIDH=%02h", rd); errors++;
+        end else
+            $display("SPI VIDH=%02h OK", rd);
 
         if (led_r !== 1'b0) begin
             $error("led_r expected active (0), got %0b", led_r);
@@ -145,19 +169,13 @@ module tb_main_selfstim;
             errors++;
         end
 
-        // SPI telemetry: HID-allowed default → HID hold threat 0x3 + pending bit
-        // pack: [7]=kill [6]=att [5]=pending [3:0]=threat → 0xE3
+        // SPI pack: [7]=kill [6]=att [5]=0 [4]=HID pending [3:0]=threat
+        // After HID class: kill+att+pending, threat 0 → 0xD0
         spi_read(`ADDR_P0_STATUS, rd);
-        if (rd !== 8'hE3) begin
-            $error("P0_STATUS=%02h expect E3 (HID hold)", rd); errors++;
+        if (rd !== 8'hD0) begin
+            $error("P0_STATUS=%02h expect D0 (HID pending hold)", rd); errors++;
         end else
             $display("SPI P0_STATUS=%02h OK", rd);
-
-        spi_read(`ADDR_P0_VID_HIGH, rd);
-        if (rd !== 8'h12) begin
-            $error("VIDH=%02h", rd); errors++;
-        end else
-            $display("SPI VIDH=%02h OK", rd);
 
         spi_read(`ADDR_P0_PID_LOW, rd);
         if (rd !== 8'h78) begin
@@ -165,16 +183,10 @@ module tb_main_selfstim;
         end else
             $display("SPI PIDL=%02h OK", rd);
 
-        spi_read(`ADDR_P0_INT_CLASS, rd);
-        if (rd !== 8'h03) begin
-            $error("INTCLASS=%02h", rd); errors++;
-        end else
-            $display("SPI INTCLASS=%02h OK", rd);
-
-        // SPI Approve (CONTROL[5]) releases HID hold and sets approved
-        spi_write(`ADDR_P0_CONTROL, 8'h20);
+        // Approve pulse + keep HID-confirm (dropping policy to 0 re-arms 0x1)
+        spi_write(`ADDR_P0_CONTROL, 8'h20 | {5'b0, `CTRL_POLICY_HID_CONFIRM});
         repeat (16) @(posedge dut.clk_48m);
-        spi_write(`ADDR_P0_CONTROL, 8'h00);
+        spi_write(`ADDR_P0_CONTROL, {5'b0, `CTRL_POLICY_HID_CONFIRM});
         repeat (16) @(posedge dut.clk_48m);
 
         if (led[0] !== 1'b0) begin
@@ -184,7 +196,7 @@ module tb_main_selfstim;
             $display("SPI approve cleared kill OK");
 
         spi_read(`ADDR_P0_STATUS, rd);
-        if (rd[7] || rd[3:0] !== `THREAT_NO_FAULT) begin
+        if (rd[7] || rd[3:0] !== `THREAT_NO_FAULT || rd[`SPI_STATUS_HID_PENDING_BIT]) begin
             $error("P0_STATUS after approve=%02h", rd); errors++;
         end else
             $display("SPI P0_STATUS after approve=%02h OK", rd);

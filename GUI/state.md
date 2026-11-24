@@ -1,7 +1,9 @@
 # GUI prototype state
 
-**Last updated:** 2026-11-18  
+**Last updated:** 2026-11-20  
 **Status:** Flutter operator console — mock for offline demo (`make dev`), serial for hardware (`make windows-serial` / COM). Bench stack (GUI ↔ Black Pill UART ↔ FPGA SPI bring-up) has been verified end-to-end. `mcu_sim` remains a **dummy** UART peer when used.
+
+**Event log:** Unplug after a sticky FPGA threat (e.g. keystroke burst) logs `Device disconnected` only — it does **not** re-emit the threat summary (fabric keeps the threat nibble until clear_fault).
 
 **Run:** `make dev` from `GUI/` → http://127.0.0.1:7357 (mode badge shows `MOCK`). Hardware: `make windows-serial` (or `.\scripts\run_windows_serial.ps1`).
 
